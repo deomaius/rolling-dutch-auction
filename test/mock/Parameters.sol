@@ -8,7 +8,7 @@ contract Parameters {
 	address constant TEST_ADDRESS_TWO = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
 
 	uint256 constant AUCTION_DURATION = 7 days;
-	uint256 constant AUCTION_WINDOW_DURATION = 4 hours;
+	uint256 constant AUCTION_WINDOW_DURATION = 2 hours;
 	uint256 constant AUCTION_ORIGIN_PRICE = 10000 gwei;
 	uint256 constant AUCTION_RESERVES = 100000 ether;
 

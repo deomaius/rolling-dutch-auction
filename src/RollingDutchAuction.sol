@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 import { IERC20 } from "./interfaces/IERC20.sol";
 import { UD60x18 } from "@prb/math/UD60x18.sol";
 
-import { add, mul, exp, ln, ud, unwrap, gte } from "@prb/math/UD60x18.sol";
+import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div } from "@prb/math/UD60x18.sol";
 
 contract RollingDutchAuction { 
 
@@ -45,16 +45,22 @@ contract RollingDutchAuction {
         _;
     }
 
-    function operatorAddress(bytes memory auctionId) public view returns (address owner) { 
-        (owner, , , , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+    function operatorAddress(bytes memory auctionId) public view returns (address) { 
+        (address opAddress, , , , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+
+        return opAddress;
     }
 
-    function purchaseToken(bytes memory auctionId) public view returns (address tokenAddress) { 
-        (, , tokenAddress, , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+    function purchaseToken(bytes memory auctionId) public view returns (address) { 
+        (, , address tokenAddress, , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+
+        return tokenAddress;
     }
 
-    function reserveToken(bytes memory auctionId) public view returns (address tokenAddress) { 
-        (, tokenAddress, , , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+    function reserveToken(bytes memory auctionId) public view returns (address) { 
+        (, address tokenAddress, , , , , , ,) = abi.decode(auctionId, (address, address, address, uint256, uint256, uint256, uint256, uint256, uint256));
+
+        return tokenAddress;
     }
 
     function withdraw(bytes memory auctionId) 
@@ -104,8 +110,8 @@ contract RollingDutchAuction {
         uint256 startTimestamp,
         uint256 endTimestamp,
         uint256 windowDuration
-    ) public {
-        bytes memory auctionId = abi.encodePacked(
+    ) public returns (bytes memory auctionId) {
+        auctionId = abi.encodePacked(
             operatorAddress,
             reserveToken,
             purchaseToken,
@@ -123,7 +129,7 @@ contract RollingDutchAuction {
         IERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
 
         auctionState.windowDuration = windowDuration;
-        auctionState.windowTimestamp = block.timestamp;
+        auctionState.windowTimestamp = startTimestamp;
         auctionState.startTimestamp = startTimestamp;
         auctionState.endTimestamp = endTimestamp;
         auctionState.reserves = reserveAmount;
@@ -136,16 +142,20 @@ contract RollingDutchAuction {
         auctionIndex += 1; 
     }
 
+    function getScalarPriceUint(bytes memory auctionId) public returns (uint256) {
+        return unwrap(getScalarPrice(auctionId));
+    }
+ 
     function getScalarPrice(bytes memory auctionId) public returns (UD60x18) {
         Auction storage auctionState = _auctions[auctionId];
 
-        uint256 t = block.timestamp - auctionState.windowTimestamp;
-        uint256 t_r = auctionState.endTimestamp - auctionState.windowTimestamp;
+        UD60x18 t = wrap(block.timestamp - auctionState.windowTimestamp);
+        UD60x18 t_r = wrap(auctionState.endTimestamp - auctionState.windowTimestamp); 
 
-        UD60x18 x = ud((t % (t_r - t)) / t_r);
-        UD60x18 y = ud(auctionState.price);
+        UD60x18 x = div(add(t, mod(t, sub(t_r, t))), t_r);
+        UD60x18 y = wrap(auctionState.price);
 
-        return mul(ln(exp(add(x, ud(1)))), y);
+        return sub(y, mul(ln(exp(x)), y));
     } 
 
     function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
@@ -164,7 +174,7 @@ contract RollingDutchAuction {
         currentWindow = _window[auctionId][_windows[auctionId]];
 
         if (currentWindow.price == 0) {
-            require(gte(ud(price), getScalarPrice(auctionId)), "INVALID CURVE PRICE");
+            require(gte(wrap(price), getScalarPrice(auctionId)), "INVALID CURVE PRICE");
         }
 
         IERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
@@ -222,7 +232,13 @@ contract RollingDutchAuction {
     }
 
     function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
-        return _window[auctionId][_windows[auctionId]].expiry - block.timestamp;
+        uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
+
+        if (expiryTimestamp == 0 || block.timestamp > expiryTimestamp) {
+            return 0;
+        } else {
+            return expiryTimestamp - block.timestamp;
+        }
     }
 
     function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {

@@ -37,20 +37,10 @@ contract RollingDutchAuctionTest is Test, Parameters {
             vm.stopPrank();
         /* --------------------------------- */
 
-        auctionId = abi.encodePacked(
-            TEST_ADDRESS_ONE,
-            reserveToken,
-            purchaseToken,
-            AUCTION_RESERVES,
-            AUCTION_ORIGIN_PRICE,
-            block.timestamp,
-            block.timestamp + AUCTION_DURATION,
-            AUCTION_WINDOW_DURATION,
-            auctionIndex
-        );  
+        auctionId = createAuction();
     }
 
-    function testAuctionCreation() public {
+    function createAuction() public returns (bytes memory) {
         /* -------------OPERATOR------------ */
             vm.startPrank(TEST_ADDRESS_ONE);
             ERC20(reserveToken).transfer(address(this), AUCTION_RESERVES);
@@ -58,7 +48,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
         /* --------------------------------- */
 
         ERC20(reserveToken).approve(auctionAddress, AUCTION_RESERVES);
-        RollingDutchAuction(auctionAddress).createAuction(
+        return RollingDutchAuction(auctionAddress).createAuction(
             TEST_ADDRESS_ONE,
             reserveToken,
             purchaseToken,
@@ -70,7 +60,27 @@ contract RollingDutchAuctionTest is Test, Parameters {
         ); 
     }
 
-    function testCommitOffer() public {}
+    function testScalarPrice() public {
+        uint256 startingPrice = RollingDutchAuction(auctionAddress).getScalarPriceUint(auctionId);
+
+        vm.warp(block.timestamp + 6 days + 23 hours + 30 minutes);
+
+        uint256 concludingPrice = RollingDutchAuction(auctionAddress).getScalarPriceUint(auctionId);
+
+        require(startingPrice > (concludingPrice * 10));
+    }
+
+    function testCommitOffer() public {
+        /* -------------OPERATOR------------
+            ERC20(purchaseToken).mint(1 ether);
+            ERC20(purchaseToken).approve(auctionAddress, 1 ether);
+            RollingDutchAuction(auctionAddress).commitBid(
+                auctionId, 
+                10010 gwei,
+                1 ether
+            );
+        --------------------------------- */
+    }
 
     function testCommitBid() public {}
 
