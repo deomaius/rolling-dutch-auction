@@ -1,1 +1,5 @@
 @prb/math/=lib/prb-math/src/
+@root/=src/
+
+forge-std/=lib/forge-std/src/
+
