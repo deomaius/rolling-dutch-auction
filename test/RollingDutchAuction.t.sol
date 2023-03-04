@@ -25,6 +25,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
         /* -------------OPERATOR------------ */
         vm.startPrank(TEST_ADDRESS_ONE);
 
+        ERC20(purchaseToken).mint(1 ether);
         ERC20(reserveToken).mint(AUCTION_RESERVES);
         auctionId = createAuction();
 
@@ -69,16 +70,68 @@ contract RollingDutchAuctionTest is Test, Parameters {
         require(startPrice > (finishPrice * 10));
     }
 
-    function testCommitOffer() public {
-        vm.warp(block.timestamp + 30 minutes);
+    function testWindowExpiry() public {
+        vm.warp(block.timestamp + 33 minutes);
+
+        uint256 scalarPrice = RollingDutchAuction(auctionAddress).getScalarPriceUint(auctionId);
+        uint256 initialRemainingTime = RollingDutchAuction(auctionAddress).remainingTime(auctionId);
 
         /* -------------BIDDER------------ */
-        vm.startPrank(TEST_ADDRESS_TWO);
+            vm.startPrank(TEST_ADDRESS_TWO);
+            createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
 
-        ERC20(purchaseToken).approve(auctionAddress, 1 ether);
-        RollingDutchAuction(auctionAddress).commitBid(auctionId, 10010 gwei, 1 ether);
+        require(RollingDutchAuction(auctionAddress).remainingWindowTime(auctionId) == AUCTION_WINDOW_DURATION);
 
-        vm.stopPrank();
+        vm.warp(block.timestamp + 1 hours);
+
+        require(RollingDutchAuction(auctionAddress).remainingWindowTime(auctionId) == AUCTION_WINDOW_DURATION - 1 hours);
+
+        /* -------------OPERATOR------------ */
+            vm.startPrank(TEST_ADDRESS_ONE);
+            createBid(scalarPrice + 1);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
+
+        require(RollingDutchAuction(auctionAddress).remainingWindowTime(auctionId) == 0);
+
+        vm.warp(block.timestamp + 1 minutes);
+
+        uint256 nextScalarPrice = RollingDutchAuction(auctionAddress).getScalarPriceUint(auctionId);
+
+        /* -------------OPERATOR------------ */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            createBid(nextScalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+    }   
+
+    function testCommitBid() public {
+        vm.warp(block.timestamp + 10 minutes);
+        
+        uint256 scalarPrice = RollingDutchAuction(auctionAddress).getScalarPriceUint(auctionId);
+
+        /* -------------BIDDER------------ */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + 1 hours);
+
+       /* -------------OPERATOR------------ */
+            vm.startPrank(TEST_ADDRESS_ONE);
+            createBid(scalarPrice + 1);
+            vm.stopPrank();
         /* --------------------------------- */
     }
+
+    function createBid(uint256 price) public {
+        ERC20(purchaseToken).approve(auctionAddress, 1 ether);
+        RollingDutchAuction(auctionAddress).commitBid(auctionId, price, 1 ether);
+    }
+
 }
