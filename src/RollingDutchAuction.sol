@@ -182,7 +182,6 @@ contract RollingDutchAuction {
 
         uint256 auctionRemainingTime = _auctions[auctionId].duration - elapsedTime(auctionId, block.timestamp);
 
-        _auctions[auctionId].reserves = _auctions[auctionId].reserves - (volume / price);
         _auctions[auctionId].endTimestamp = block.timestamp + auctionRemainingTime;
         _auctions[auctionId].windowTimestamp = currentWindow.expiry;
         _auctions[auctionId].price = price;
@@ -209,14 +208,22 @@ contract RollingDutchAuction {
 
         fufillmentWindow.processed = true;
 
+        _auctions[auctionId].reserves = _auctions[auctionId].reserves - (volume / price);
         _auctions[auctionId].proceeds = _auctions[auctionId].proceeds + volume;
-        _claims[biddingAddress][auctionId] = abi.encodePacked(refundBalance - volume, claimBalance + (volume / price));
+
+        _claims[biddingAddress][auctionId] = abi.encode(refundBalance - volume, claimBalance + (volume / price));
 
         emit Fufillment(auctionId, fufillmentWindow.bidId, windowId);
     }
 
     function remainingTime(bytes memory auctionId) public view returns (uint256) {
-        return _auctions[auctionId].endTimestamp - block.timestamp;
+        uint256 endTimestamp = _auctions[auctionId].endTimestamp;
+
+        if (endTimestamp > block.timestamp) {
+            return endTimestamp - block.timestamp;
+        } else {
+            return 0;
+        }
     }
 
     function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
