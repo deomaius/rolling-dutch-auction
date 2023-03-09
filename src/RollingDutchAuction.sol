@@ -162,21 +162,22 @@ contract RollingDutchAuction {
         uint256 refundBalance;
         uint256 claimBalance;
 
-        currentWindow.expiry = block.timestamp + _auctions[auctionId].windowDuration;
-        currentWindow.volume = volume;
-        currentWindow.price = price;
-        currentWindow.bidId = bidId;
-
         if (keccak256(_claims[msg.sender][auctionId]) != keccak256(bytes(""))) {
             (refundBalance, claimBalance) = abi.decode(_claims[msg.sender][auctionId], (uint256, uint256));
         }
 
         _claims[msg.sender][auctionId] = abi.encode(refundBalance + volume, claimBalance);
-        _auctions[auctionId].windowTimestamp = block.timestamp;
 
         if (hasExpired) {
-            windowExpiration(currentWindow);
+            currentWindow = _window[auctionId][windowExpiration(auctionId)];
+        } else {
+            _auctions[auctionId].windowTimestamp = block.timestamp;
         }
+
+        currentWindow.expiry = block.timestamp + _auctions[auctionId].windowDuration;
+        currentWindow.volume = volume;
+        currentWindow.price = price;
+        currentWindow.bidId = bidId;
 
         emit Offer(auctionId, msg.sender, currentWindow.bidId, currentWindow.expiry);
 
@@ -189,30 +190,35 @@ contract RollingDutchAuction {
         return currentWindow.expiry != 0 && currentWindow.expiry < block.timestamp;
     }
 
-    function windowExpiration(Window memory currentWindow) internal {
-        (bytes memory auctionId, address biddingAddress, uint256 price, uint256 volume) =
-            abi.decode(currentWindow.bidId, (bytes, address, uint256, uint256));
-
+    function windowExpiration(bytes memory auctionId) internal returns (uint256) {
+        uint256 windowIndex = _windows[auctionId];
         uint256 auctionRemainingTime = _auctions[auctionId].duration - elapsedTime(auctionId, block.timestamp);
+
+         Window storage currentWindow = _window[auctionId][windowIndex];
 
         _auctions[auctionId].endTimestamp = block.timestamp + auctionRemainingTime;
         _auctions[auctionId].windowTimestamp = currentWindow.expiry;
-        _auctions[auctionId].price = price;
+        _auctions[auctionId].price = currentWindow.price;
 
-        fufillWindow(auctionId, _windows[auctionId]);
+        fufillWindow(auctionId, windowIndex);
 
-        emit Expiration(auctionId, currentWindow.bidId, _windows[auctionId]);
+        _windows[auctionId] = windowIndex + 1;
+
+        emit Expiration(auctionId, currentWindow.bidId, windowIndex);
+
+        return windowIndex + 1;
     }
 
     function fufillWindow(bytes memory auctionId, uint256 windowId) public {
         Window storage fufillmentWindow = _window[auctionId][windowId];
 
+        emit Debug(fufillmentWindow.expiry, block.timestamp);
+
+        require(fufillmentWindow.expiry < block.timestamp, "WINDOW UNEXPIRED");
         require(!fufillmentWindow.processed, "WINDOW ALREADY FUFILLED");
 
-        (, address biddingAddress, uint256 price, uint256 volume) =
-            abi.decode(fufillmentWindow.bidId, (bytes, address, uint256, uint256));
-        (uint256 refundBalance, uint256 claimBalance) =
-            abi.decode(_claims[biddingAddress][auctionId], (uint256, uint256));
+        (, address biddingAddress, uint256 price, uint256 volume) = abi.decode(fufillmentWindow.bidId, (bytes, address, uint256, uint256));
+        (uint256 refundBalance, uint256 claimBalance) = abi.decode(_claims[biddingAddress][auctionId], (uint256, uint256));
 
         delete _claims[biddingAddress][auctionId];
 
@@ -236,7 +242,7 @@ contract RollingDutchAuction {
         }
     }
 
-    function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
+    function remainingWindowTime(bytes memory auctionId) public returns (uint256) {
         uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
 
         if (expiryTimestamp == 0 || block.timestamp > expiryTimestamp) {
