@@ -43,6 +43,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
         require(RollingDutchAuction(_auctionAddress).operatorAddress(_auctionId) == TEST_ADDRESS_ONE);
         require(RollingDutchAuction(_auctionAddress).purchaseToken(_auctionId) == _purchaseToken);
         require(RollingDutchAuction(_auctionAddress).reserveToken(_auctionId) == _reserveToken);
+        require(RollingDutchAuction(_auctionAddress).minimumPurchase(_auctionId) == AUCTION_MINIMUM_PURCHASE);
     }
 
     function testBidIdDecoding() public {
@@ -184,10 +185,21 @@ contract RollingDutchAuctionTest is Test, Parameters {
 
         /* -------------OPERATOR------------ */
             vm.startPrank(TEST_ADDRESS_ONE);
+            RollingDutchAuction(_auctionAddress).claim(TEST_ADDRESS_ONE, _auctionId);
             RollingDutchAuction(_auctionAddress).withdraw(_auctionId);
             vm.stopPrank();
         /* --------------------------------- */
 
+        uint256 operatorPTokenBalance = ERC20(_purchaseToken).balanceOf(TEST_ADDRESS_ONE);
+        uint256 operatorRTokenBalance = ERC20(_reserveToken).balanceOf(TEST_ADDRESS_ONE);
+        uint256 bidderPTokenBalance = ERC20(_purchaseToken).balanceOf(TEST_ADDRESS_TWO);
+        uint256 bidderRTokenBalance = ERC20(_reserveToken).balanceOf(TEST_ADDRESS_TWO);
+        uint256 remainingReserves = AUCTION_RESERVES - (1 ether / (scalarPrice + 2));
+
+        require(bidderRTokenBalance == 1 ether / (scalarPrice + 2));
+        require(operatorRTokenBalance == remainingReserves);
+        require(operatorPTokenBalance == 2 ether);
+        require(bidderPTokenBalance == 99 ether);
     }
 
     function createAuction() public returns (bytes memory) {
@@ -198,6 +210,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
             _reserveToken,
             _purchaseToken,
             AUCTION_RESERVES,
+            AUCTION_MINIMUM_PURCHASE,
             AUCTION_ORIGIN_PRICE,
             block.timestamp,
             block.timestamp + AUCTION_DURATION,

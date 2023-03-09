@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 import { UD60x18 } from "@prb/math/UD60x18.sol";
 import { IERC20 } from "@root/interfaces/IERC20.sol";
 
-import { add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div, eq } from "@prb/math/UD60x18.sol";
+import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div, eq } from "@prb/math/UD60x18.sol";
 
 contract RollingDutchAuction {
     uint256 public auctionIndex;
@@ -45,15 +45,15 @@ contract RollingDutchAuction {
     }
 
     function operatorAddress(bytes memory auctionId) public view returns (address opAddress) {
-        (opAddress,,,) = abi.decode(auctionId, (address, address, address, bytes));
+        (opAddress,,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
     function purchaseToken(bytes memory auctionId) public view returns (address tokenAddress) {
-        (,, tokenAddress,) = abi.decode(auctionId, (address, address, address, bytes));
+        (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
     function reserveToken(bytes memory auctionId) public view returns (address tokenAddress) {
-        (, tokenAddress,,) = abi.decode(auctionId, (address, address, address, bytes));
+        (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
     function createAuction(
@@ -61,6 +61,7 @@ contract RollingDutchAuction {
         address reserveToken,
         address purchaseToken,
         uint256 reserveAmount,
+        uint256 minimumPurchaseAmount,
         uint256 startingPrice,
         uint256 startTimestamp,
         uint256 endTimestamp,
@@ -70,6 +71,7 @@ contract RollingDutchAuction {
             operatorAddress,
             reserveToken,
             purchaseToken,
+            minimumPurchaseAmount,
             abi.encodePacked(reserveAmount, startingPrice, startTimestamp, endTimestamp, windowDuration, auctionIndex)
         );
         Auction storage auctionState = _auctions[auctionId];
@@ -93,6 +95,14 @@ contract RollingDutchAuction {
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingPrice, endTimestamp);
 
         auctionIndex += 1;
+    }
+
+    function minimumPurchase(bytes memory auctionId) public view returns (uint256 minimumAmount) {
+        (,,, minimumAmount,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+    }
+
+    function maximumPurchase(bytes memory auctionId) public returns (uint256) {
+        return unwrap(inv(getScalarPrice(auctionId)));
     }
 
     function getScalarPriceUint(bytes memory auctionId) public returns (uint256) {
@@ -122,6 +132,8 @@ contract RollingDutchAuction {
     public returns (bytes memory) {
         Window storage currentWindow = _window[auctionId][_windows[auctionId]];
 
+        require(minimumPurchase(auctionId) <= volume, "INSUFFICIENT VOLUME");
+
         bool hasExpired;
 
         if (currentWindow.expiry != 0) {
@@ -142,7 +154,8 @@ contract RollingDutchAuction {
 
         IERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
 
-        require(_auctions[auctionId].reserves >= volume / price, "INSUFFICIENT RESERVES");
+        require(_auctions[auctionId].reserves >= (volume / price), "INSUFFICIENT RESERVES");
+        require(maximumPurchase(auctionId) >= (volume / price), "INVALID VOLUME");
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
 
@@ -176,7 +189,7 @@ contract RollingDutchAuction {
         return currentWindow.expiry != 0 && currentWindow.expiry < block.timestamp;
     }
 
-    function windowExpiration(Window memory currentWindow) internal returns (uint256) {
+    function windowExpiration(Window memory currentWindow) internal {
         (bytes memory auctionId, address biddingAddress, uint256 price, uint256 volume) =
             abi.decode(currentWindow.bidId, (bytes, address, uint256, uint256));
 
@@ -188,10 +201,7 @@ contract RollingDutchAuction {
 
         fufillWindow(auctionId, _windows[auctionId]);
 
-        emit Expiration(auctionId, currentWindow.bidId, _windows[auctionId
-        ]);
-
-        return _windows[auctionId] + 1;
+        emit Expiration(auctionId, currentWindow.bidId, _windows[auctionId]);
     }
 
     function fufillWindow(bytes memory auctionId, uint256 windowId) public {
