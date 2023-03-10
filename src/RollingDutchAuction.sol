@@ -3,23 +3,20 @@ pragma solidity ^0.8.13;
 import { UD60x18 } from "@prb/math/UD60x18.sol";
 import { IERC20 } from "@root/interfaces/IERC20.sol";
 
-import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div, eq } from "@prb/math/UD60x18.sol";
+import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div } from "@prb/math/UD60x18.sol";
 
 contract RollingDutchAuction {
-    uint256 public auctionIndex;
-
     mapping(address => mapping(bytes => bytes)) public _claims;
     mapping(bytes => mapping(uint256 => Window)) public _window;
 
-    mapping(uint256 => bytes) public _auctionIds;
     mapping(bytes => Auction) public _auctions;
     mapping(bytes => uint256) public _windows;
 
     struct Auction {
-        uint256 startTimestamp;
-        uint256 endTimestamp;
         uint256 windowDuration;
         uint256 windowTimestamp;
+        uint256 startTimestamp;
+        uint256 endTimestamp;
         uint256 duration;
         uint256 proceeds;
         uint256 reserves;
@@ -27,8 +24,8 @@ contract RollingDutchAuction {
     }
 
     struct Window {
-        uint256 expiry;
         bytes bidId;
+        uint256 expiry;
         uint256 price;
         uint256 volume;
         bool processed;
@@ -44,16 +41,27 @@ contract RollingDutchAuction {
         _;
     }
 
-    function operatorAddress(bytes memory auctionId) public view returns (address opAddress) {
+    function operatorAddress(bytes memory auctionId) public pure returns (address opAddress) {
         (opAddress,,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
-    function purchaseToken(bytes memory auctionId) public view returns (address tokenAddress) {
+    function purchaseToken(bytes memory auctionId) public pure returns (address tokenAddress) {
         (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
-    function reserveToken(bytes memory auctionId) public view returns (address tokenAddress) {
+    function reserveToken(bytes memory auctionId) public pure returns (address tokenAddress) {
         (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+    }
+
+    function balancesOf(bytes memory claimHash) public pure returns (uint256, uint256) {
+        uint256 refundBalance;
+        uint256 claimBalance;
+
+        if (keccak256(claimHash) != keccak256(bytes(""))) {
+            (refundBalance, claimBalance) = abi.decode(claimHash, (uint256, uint256));
+        }
+
+        return (refundBalance, claimBalance);
     }
 
     function createAuction(
@@ -66,90 +74,87 @@ contract RollingDutchAuction {
         uint256 startTimestamp,
         uint256 endTimestamp,
         uint256 windowDuration
-    ) public returns (bytes memory auctionId) {
-        auctionId = abi.encode(
+    ) public returns (bytes memory) {
+        bytes memory auctionId = abi.encode(
             operatorAddress,
             reserveToken,
             purchaseToken,
             minimumPurchaseAmount,
-            abi.encodePacked(reserveAmount, startingPrice, startTimestamp, endTimestamp, windowDuration, auctionIndex)
+            abi.encodePacked(reserveAmount, startingPrice, startTimestamp, endTimestamp, windowDuration)
         );
-        Auction storage auctionState = _auctions[auctionId];
 
-        require(auctionState.price == 0, "AUCTION EXISTS");
+        Auction storage state = _auctions[auctionId];
+
+        require(state.price == 0, "AUCTION EXISTS");
 
         IERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
 
-        uint256 auctionDuration = endTimestamp - startTimestamp;
-
-        auctionState.windowDuration = windowDuration;
-        auctionState.windowTimestamp = startTimestamp;
-        auctionState.startTimestamp = startTimestamp;
-        auctionState.endTimestamp = endTimestamp;
-        auctionState.reserves = reserveAmount;
-        auctionState.duration = auctionDuration;
-        auctionState.price = startingPrice;
-
-        _auctionIds[auctionIndex] = auctionId;
+        state.duration = endTimestamp - startTimestamp;
+        state.windowDuration = windowDuration;
+        state.windowTimestamp = startTimestamp;
+        state.startTimestamp = startTimestamp;
+        state.endTimestamp = endTimestamp;
+        state.reserves = reserveAmount;
+        state.price = startingPrice;
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingPrice, endTimestamp);
 
-        auctionIndex += 1;
+        return auctionId;
     }
 
-    function minimumPurchase(bytes memory auctionId) public view returns (uint256 minimumAmount) {
+    function minimumPurchase(bytes memory auctionId) public pure returns (uint256 minimumAmount) {
         (,,, minimumAmount,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
-    function maximumPurchase(bytes memory auctionId) public returns (uint256) {
-        return unwrap(inv(getScalarPrice(auctionId)));
+    function maximumPurchase(bytes memory auctionId) public view returns (uint256) {
+        return unwrap(inv(scalarPrice(auctionId)));
     }
 
-    function getScalarPriceUint(bytes memory auctionId) public returns (uint256) {
-        return unwrap(getScalarPrice(auctionId));
+    function scalarPriceUint(bytes memory auctionId) public view returns (uint256) {
+        return unwrap(scalarPrice(auctionId));
     }
 
-    function getScalarPrice(bytes memory auctionId) public returns (UD60x18) {
-        Auction storage auctionState = _auctions[auctionId];
-        Window storage currentWindow = _window[auctionId][_windows[auctionId]];
+    function scalarPrice(bytes memory auctionId) public view returns (UD60x18) {
+        Auction storage state = _auctions[auctionId];
+        Window storage w = _window[auctionId][_windows[auctionId]];
 
-        uint256 timestamp = isExpiredWindow(auctionId) ? currentWindow.expiry : auctionState.windowTimestamp;
+        bool isInitialised = w.expiry != 0;
+        bool isExpired = w.expiry < block.timestamp && isInitialised;
+
+        uint256 timestamp = isExpired ? w.expiry : state.windowTimestamp;
 
         UD60x18 t = wrap(block.timestamp - timestamp);
-        UD60x18 t_r = wrap(auctionState.endTimestamp - timestamp);
-        UD60x18 p_1 = wrap(currentWindow.price);
-        UD60x18 p_2 = wrap(auctionState.price);
+        UD60x18 t_r = wrap(state.endTimestamp - timestamp);
 
         UD60x18 x = div(add(t, mod(t, sub(t_r, t))), t_r);
-        UD60x18 y = eq(p_1, wrap(0)) ? p_2 : p_1;
-        UD60x18 y_x = mul(ln(exp(x)), y);
+        UD60x18 y = !isInitialised ? wrap(state.price) : wrap(w.price);
 
-        return sub(y, y_x);
+        return sub(y, mul(ln(exp(x)), y));
     }
 
     function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
         activeAuction(auctionId) 
     public returns (bytes memory) {
-        Window storage currentWindow = _window[auctionId][_windows[auctionId]];
+        Window storage w = _window[auctionId][_windows[auctionId]];
 
         require(minimumPurchase(auctionId) <= volume, "INSUFFICIENT VOLUME");
 
         bool hasExpired;
 
-        if (currentWindow.expiry != 0) {
+        if (w.expiry != 0) {
             if (remainingWindowTime(auctionId) > 0) {
-                if (currentWindow.price < price) {
-                    require(currentWindow.volume <= volume, "INSUFFICIENT WINDOW VOLUME");
+                if (w.price < price) {
+                    require(w.volume <= volume, "INSUFFICIENT WINDOW VOLUME");
                 } else {
-                    require(currentWindow.price < price, "INVALID WINDOW PRICE");
+                    require(w.price < price, "INVALID WINDOW PRICE");
                 }
             } else {
                 hasExpired = true;
             }
         }
 
-        if (currentWindow.price == 0 || hasExpired) {
-            require(gte(wrap(price), getScalarPrice(auctionId)), "INVALID CURVE PRICE");
+        if (w.price == 0 || hasExpired) {
+            require(gte(wrap(price), scalarPrice(auctionId)), "INVALID CURVE PRICE");
         }
 
         IERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
@@ -159,77 +164,64 @@ contract RollingDutchAuction {
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
 
-        uint256 refundBalance;
-        uint256 claimBalance;
+        (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
 
-        if (keccak256(_claims[msg.sender][auctionId]) != keccak256(bytes(""))) {
-            (refundBalance, claimBalance) = abi.decode(_claims[msg.sender][auctionId], (uint256, uint256));
-        }
-
-        _claims[msg.sender][auctionId] = abi.encode(refundBalance + volume, claimBalance);
+        _claims[msg.sender][auctionId] = abi.encode(refund + volume, claim);
 
         if (hasExpired) {
-            currentWindow = _window[auctionId][windowExpiration(auctionId)];
-        } else {
-            _auctions[auctionId].windowTimestamp = block.timestamp;
-        }
+            w = _window[auctionId][windowExpiration(auctionId)];
+        } 
 
-        currentWindow.expiry = block.timestamp + _auctions[auctionId].windowDuration;
-        currentWindow.volume = volume;
-        currentWindow.price = price;
-        currentWindow.bidId = bidId;
+        _auctions[auctionId].windowTimestamp = block.timestamp;
 
-        emit Offer(auctionId, msg.sender, currentWindow.bidId, currentWindow.expiry);
+        w.expiry = block.timestamp + _auctions[auctionId].windowDuration;
+        w.volume = volume;
+        w.price = price;
+        w.bidId = bidId;
+
+        emit Offer(auctionId, msg.sender, w.bidId, w.expiry);
 
         return bidId;
     }
 
-    function isExpiredWindow(bytes memory auctionId) public returns (bool) {
-        Window storage currentWindow = _window[auctionId][_windows[auctionId]];
-
-        return currentWindow.expiry != 0 && currentWindow.expiry < block.timestamp;
-    }
-
     function windowExpiration(bytes memory auctionId) internal returns (uint256) {
         uint256 windowIndex = _windows[auctionId];
-        uint256 auctionRemainingTime = _auctions[auctionId].duration - elapsedTime(auctionId, block.timestamp);
+        uint256 auctionElapsedTime = elapsedTime(auctionId, block.timestamp);
+        uint256 auctionRemainingTime = _auctions[auctionId].duration - auctionElapsedTime;
 
-         Window storage currentWindow = _window[auctionId][windowIndex];
+        bytes memory winningBidId = _window[auctionId][windowIndex].bidId;
 
         _auctions[auctionId].endTimestamp = block.timestamp + auctionRemainingTime;
-        _auctions[auctionId].windowTimestamp = currentWindow.expiry;
-        _auctions[auctionId].price = currentWindow.price;
-
-        fufillWindow(auctionId, windowIndex);
+        _auctions[auctionId].price = _window[auctionId][windowIndex].price;
 
         _windows[auctionId] = windowIndex + 1;
 
-        emit Expiration(auctionId, currentWindow.bidId, windowIndex);
+        fulfillWindow(auctionId, windowIndex);
+
+        emit Expiration(auctionId, winningBidId, windowIndex);
 
         return windowIndex + 1;
     }
 
-    function fufillWindow(bytes memory auctionId, uint256 windowId) public {
-        Window storage fufillmentWindow = _window[auctionId][windowId];
+    function fulfillWindow(bytes memory auctionId, uint256 windowId) public {
+        Window storage w = _window[auctionId][windowId];
 
-        emit Debug(fufillmentWindow.expiry, block.timestamp);
+        require(w.expiry < block.timestamp, "WINDOW UNEXPIRED");
+        require(!w.processed, "WINDOW ALREADY FUFILLED");
 
-        require(fufillmentWindow.expiry < block.timestamp, "WINDOW UNEXPIRED");
-        require(!fufillmentWindow.processed, "WINDOW ALREADY FUFILLED");
+        (, address bidder, uint256 price, uint256 volume) = abi.decode(w.bidId, (bytes, address, uint256, uint256));
+        (uint256 refund, uint256 claim) = balancesOf(_claims[bidder][auctionId]);
 
-        (, address biddingAddress, uint256 price, uint256 volume) = abi.decode(fufillmentWindow.bidId, (bytes, address, uint256, uint256));
-        (uint256 refundBalance, uint256 claimBalance) = abi.decode(_claims[biddingAddress][auctionId], (uint256, uint256));
+        delete _claims[bidder][auctionId];
 
-        delete _claims[biddingAddress][auctionId];
+        w.processed = true;
 
-        fufillmentWindow.processed = true;
+        _auctions[auctionId].reserves -= volume / price;
+        _auctions[auctionId].proceeds += volume;
 
-        _auctions[auctionId].reserves = _auctions[auctionId].reserves - (volume / price);
-        _auctions[auctionId].proceeds = _auctions[auctionId].proceeds + volume;
+        _claims[bidder][auctionId] = abi.encode(refund - volume, claim + (volume / price));
 
-        _claims[biddingAddress][auctionId] = abi.encode(refundBalance - volume, claimBalance + (volume / price));
-
-        emit Fufillment(auctionId, fufillmentWindow.bidId, windowId);
+        emit Fufillment(auctionId, w.bidId, windowId);
     }
 
     function remainingTime(bytes memory auctionId) public view returns (uint256) {
@@ -242,7 +234,7 @@ contract RollingDutchAuction {
         }
     }
 
-    function remainingWindowTime(bytes memory auctionId) public returns (uint256) {
+    function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
         uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
 
         if (expiryTimestamp == 0 || block.timestamp > expiryTimestamp) {
@@ -252,7 +244,7 @@ contract RollingDutchAuction {
         }
     }
 
-    function elapsedTime(bytes memory auctionId, uint256 timestamp) public returns (uint256) {
+    function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {
         uint256 windowIndex = _windows[auctionId] + 1;
         uint256 windowElapsedTime = _auctions[auctionId].windowDuration * windowIndex;
 
@@ -262,36 +254,36 @@ contract RollingDutchAuction {
     function withdraw(bytes memory auctionId) 
         inactiveAuction(auctionId) 
     public {
-        uint256 proceedsBalance = _auctions[auctionId].proceeds;
-        uint256 reservesBalance = _auctions[auctionId].reserves;
+        uint256 proceeds = _auctions[auctionId].proceeds;
+        uint256 reserves = _auctions[auctionId].reserves;
 
         delete _auctions[auctionId].proceeds;
         delete _auctions[auctionId].reserves;
 
-        if (proceedsBalance > 0) {
-            IERC20(purchaseToken(auctionId)).transfer(operatorAddress(auctionId), proceedsBalance);
+        if (proceeds > 0) {
+            IERC20(purchaseToken(auctionId)).transfer(operatorAddress(auctionId), proceeds);
         }
-        if (reservesBalance > 0) {
-            IERC20(reserveToken(auctionId)).transfer(operatorAddress(auctionId), reservesBalance);
+        if (reserves > 0) {
+            IERC20(reserveToken(auctionId)).transfer(operatorAddress(auctionId), reserves);
         }
 
         emit Withdraw(auctionId);
     }
 
-    function claim(address biddingAddress, bytes memory auctionId)
+    function redeem(address bidder, bytes memory auctionId)
         inactiveAuction(auctionId) 
     public {
-        bytes memory claimHash = _claims[biddingAddress][auctionId];
+        bytes memory claimHash = _claims[bidder][auctionId];
 
-        delete _claims[biddingAddress][auctionId];
+        (uint256 refund, uint256 claim) = balancesOf(claimHash);
 
-        (uint256 refundBalance, uint256 claimBalance) = abi.decode(claimHash, (uint256, uint256));
+        delete _claims[bidder][auctionId];
 
-        if (refundBalance > 0) {
-            IERC20(purchaseToken(auctionId)).transfer(biddingAddress, refundBalance);
+        if (refund > 0) {
+            IERC20(purchaseToken(auctionId)).transfer(bidder, refund);
         }
-        if (claimBalance > 0) {
-            IERC20(reserveToken(auctionId)).transfer(biddingAddress, claimBalance);
+        if (claim > 0) {
+            IERC20(reserveToken(auctionId)).transfer(bidder, claim);
         }
 
         emit Claim(auctionId, claimHash);
@@ -310,6 +302,4 @@ contract RollingDutchAuction {
     event Claim(bytes indexed auctionId, bytes indexed bidId);
 
     event Withdraw(bytes indexed auctionId);
-
-    event Debug(uint256 a, uint256 b);
 }
