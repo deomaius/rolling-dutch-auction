@@ -5,54 +5,91 @@ import { IERC20 } from "@root/interfaces/IERC20.sol";
 
 import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div } from "@prb/math/UD60x18.sol";
 
+/*
+    * @title Rolling Dutch Auction 
+    * @author Samuel JJ Gosling 
+    * @description A dutch auction derivative with composite logarithimic decay 
+*/
+
 contract RollingDutchAuction {
+
+    /*  @dev Address mapping for an auction's redeemable balances  */
     mapping(address => mapping(bytes => bytes)) public _claims;
+
+    /*  @dev Auction mapping translating to an indexed window      */
     mapping(bytes => mapping(uint256 => Window)) public _window;
 
+    /*  @dev Auction mapping for associated parameters             */
     mapping(bytes => Auction) public _auctions;
+
+    /*  @dev Auction mapping for the window index                  */
     mapping(bytes => uint256) public _windows;
 
     struct Auction {
-        uint256 windowDuration;
-        uint256 windowTimestamp;
-        uint256 startTimestamp;
-        uint256 endTimestamp;
-        uint256 duration;
-        uint256 proceeds;
-        uint256 reserves;
-        uint256 price;
+        uint256 windowDuration;     /*  @dev Unix time window duration         */
+        uint256 windowTimestamp;    /*  @dev Unix timestamp for window start   */
+        uint256 startTimestamp;     /*  @dev Unix auction start timestamp      */ 
+        uint256 endTimestamp;       /*  @dev Unix auction end timestamp        */
+        uint256 duration;           /*  @dev Unix time auction duration        */
+        uint256 proceeds;           /*  @dev Auction proceeds balance          */  
+        uint256 reserves;           /*  @dev Auction reserves balance          */
+        uint256 price;              /*  @dev Auction origin price              */
     }
 
     struct Window {
-        bytes bidId;
-        uint256 expiry;
-        uint256 price;
-        uint256 volume;
-        bool processed;
+        bytes bidId;        /*  @dev Bid identifier                     */ 
+        uint256 expiry;     /*  @dev Unix timestamp window exipration   */
+        uint256 price;      /*  @dev Window price                       */
+        uint256 volume;     /*  @dev Window volume                      */
+        bool processed;     /*  @dev Window fuflfillment state          */
     }
 
+    /*  
+        * @dev Conditioner to ensure an auction is active  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     modifier activeAuction(bytes memory auctionId) {
         require(remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0);
         _;
     }
 
+    /*  
+        * @dev Conditioner to ensure an auction is inactive  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     modifier inactiveAuction(bytes memory auctionId) {
         require(remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0);
         _;
     }
 
+    /*  
+        * @dev Helper to view an auction's operator address  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function operatorAddress(bytes memory auctionId) public pure returns (address opAddress) {
         (opAddress,,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
+    /*  
+        * @dev Helper to view an auction's purchase token address  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Ancoded auction parameter identifier    
+    */  
     function purchaseToken(bytes memory auctionId) public pure returns (address tokenAddress) {
         (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
+    /*  
+        * @dev Helper to view an auction's reserve token address  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function reserveToken(bytes memory auctionId) public pure returns (address tokenAddress) {
         (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
+    /*  
+        * @dev Helper to decode claim hash balances
+        * @param c͟l͟a͟i͟m͟H͟a͟s͟h͟ Encoded (uint256, uint256) values 
+    */  
     function balancesOf(bytes memory claimHash) public pure returns (uint256, uint256) {
         uint256 refundBalance;
         uint256 claimBalance;
@@ -64,13 +101,25 @@ contract RollingDutchAuction {
         return (refundBalance, claimBalance);
     }
 
+    /*  
+        * @dev Auction deployment
+        * @param o͟p͟e͟r͟a͟t͟o͟r͟A͟d͟r͟e͟s͟s͟ Auction management address
+        * @param r͟e͟s͟e͟r͟v͟e͟T͟o͟k͟e͟n͟ Auctioning token address
+        * @param p͟u͟r͟c͟h͟a͟s͟e͟T͟o͟k͟e͟n͟ Currency token address
+        * @param r͟e͟s͟e͟r͟v͟e͟A͟m͟o͟u͟n͟t͟ Auctioning token amount
+        * @param m͟i͟n͟i͟m͟u͟m͟P͟u͟r͟c͟h͟a͟s͟e͟A͟m͟o͟u͟n͟t͟ Minimum currency purchase amount 
+        * @param s͟t͟a͟r͟t͟i͟n͟g͟O͟r͟i͟g͟i͟n͟P͟r͟i͟c͟e͟ Auction starting price 
+        * @param s͟t͟a͟r͟t͟T͟i͟m͟e͟s͟t͟a͟m͟p͟ Unix timestamp auction initiation
+        * @param e͟n͟d͟T͟i͟m͟e͟s͟t͟a͟m͟p͟ Unix timestamp auction expiration
+        * @param w͟i͟n͟d͟o͟w͟D͟u͟r͟a͟t͟i͟o͟n͟ Uinx time window duration
+    */  
     function createAuction(
         address operatorAddress,
         address reserveToken,
         address purchaseToken,
         uint256 reserveAmount,
         uint256 minimumPurchaseAmount,
-        uint256 startingPrice,
+        uint256 startingOriginPrice,
         uint256 startTimestamp,
         uint256 endTimestamp,
         uint256 windowDuration
@@ -94,26 +143,46 @@ contract RollingDutchAuction {
         state.windowTimestamp = startTimestamp;
         state.startTimestamp = startTimestamp;
         state.endTimestamp = endTimestamp;
+        state.price = startingOriginPrice;
         state.reserves = reserveAmount;
-        state.price = startingPrice;
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingPrice, endTimestamp);
 
         return auctionId;
     }
 
+    /*  
+        * @dev Helper to view an auction's minimum purchase amount   
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function minimumPurchase(bytes memory auctionId) public pure returns (uint256 minimumAmount) {
         (,,, minimumAmount,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
+    /*  
+        * @dev Helper to view an auction's maximum order reserve amount  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */   
     function maximumPurchase(bytes memory auctionId) public view returns (uint256) {
         return unwrap(inv(scalarPrice(auctionId)));
     }
 
+    /*  
+        * @dev Helper to view an auction's active scalar price formatted to uint256  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function scalarPriceUint(bytes memory auctionId) public view returns (uint256) {
         return unwrap(scalarPrice(auctionId));
     }
 
+    /*  
+        * @dev Active price decay following time delta (x) between the current 
+        * timestamp and the window's start timestamp or if the window is expired; time 
+        * delta between the window's expiration. Which is the applied as the exponent 
+        * of Euler's number and subject to the natural logarithim. Finally applied as  
+        * as a product to the origin price (y) and substracted from itself
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */      
     function scalarPrice(bytes memory auctionId) public view returns (UD60x18) {
         Auction storage state = _auctions[auctionId];
         Window storage w = _window[auctionId][_windows[auctionId]];
@@ -132,6 +201,12 @@ contract RollingDutchAuction {
         return sub(y, mul(ln(exp(x)), y));
     }
 
+    /*  
+        * @dev Bid submission 
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+        * @param p͟r͟i͟c͟e͟ Bid order price  
+        * @param v͟o͟l͟u͟m͟e͟ Bid order volume
+    */     
     function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
         activeAuction(auctionId) 
     public returns (bytes memory) {
@@ -184,6 +259,10 @@ contract RollingDutchAuction {
         return bidId;
     }
 
+    /*  
+        * @dev Expire and fulfill an auction's active window  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */     
     function windowExpiration(bytes memory auctionId) internal returns (uint256) {
         uint256 windowIndex = _windows[auctionId];
         uint256 auctionElapsedTime = elapsedTime(auctionId, block.timestamp);
@@ -203,6 +282,11 @@ contract RollingDutchAuction {
         return windowIndex + 1;
     }
 
+
+    /*  
+        * @dev Fulfill a window index even if the auction is inactive 
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function fulfillWindow(bytes memory auctionId, uint256 windowId) public {
         Window storage w = _window[auctionId][windowId];
 
@@ -224,6 +308,10 @@ contract RollingDutchAuction {
         emit Fufillment(auctionId, w.bidId, windowId);
     }
 
+    /*  
+        * @dev Helper to view an auction's remaining duration
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function remainingTime(bytes memory auctionId) public view returns (uint256) {
         uint256 endTimestamp = _auctions[auctionId].endTimestamp;
 
@@ -234,6 +322,10 @@ contract RollingDutchAuction {
         }
     }
 
+    /*  
+        * @dev Helper to view an auction's active remaining window duration
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
         uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
 
@@ -244,6 +336,10 @@ contract RollingDutchAuction {
         }
     }
 
+    /*  
+        * @dev Helper to view an auction's progress in unix time
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */     
     function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {
         uint256 windowIndex = _windows[auctionId] + 1;
         uint256 windowElapsedTime = _auctions[auctionId].windowDuration * windowIndex;
@@ -251,6 +347,10 @@ contract RollingDutchAuction {
         return timestamp - _auctions[auctionId].startTimestamp - windowElapsedTime;
     }
 
+    /*  
+        * @dev Auction management redemption 
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */     
     function withdraw(bytes memory auctionId) 
         inactiveAuction(auctionId) 
     public {
@@ -270,6 +370,10 @@ contract RollingDutchAuction {
         emit Withdraw(auctionId);
     }
 
+    /*  
+        * @dev Auction order and refund redemption 
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
     function redeem(address bidder, bytes memory auctionId)
         inactiveAuction(auctionId) 
     public {
