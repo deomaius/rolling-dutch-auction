@@ -1,4 +1,4 @@
-pragma solidity ^0.8.13;
+pragma solidity 0.8.13;
 
 import { UD60x18 } from "@prb/math/UD60x18.sol";
 import { IERC20 } from "@root/interfaces/IERC20.sol";
@@ -281,7 +281,6 @@ contract RollingDutchAuction {
 
         return windowIndex + 1;
     }
-
 
     /*  
         * @dev Fulfill a window index even if the auction is inactive 
