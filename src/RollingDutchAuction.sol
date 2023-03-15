@@ -3,13 +3,31 @@ pragma solidity 0.8.13;
 import { UD60x18 } from "@prb/math/UD60x18.sol";
 import { IERC20 } from "@root/interfaces/IERC20.sol";
 
-import { inv, add, sub, mul, exp, ln, wrap, unwrap, gte, mod, div } from "@prb/math/UD60x18.sol";
+import { inv, add, sub, mul, exp, ln, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
 
 /*
     * @title Rolling Dutch Auction 
     * @author Samuel JJ Gosling 
     * @description A dutch auction derivative with composite logarithimic decay 
 */
+
+error InvalidPurchaseVolume();
+
+error InvalidReserveVolume();
+
+error InvalidWindowVolume();
+
+error InvalidWindowPrice();
+
+error InsufficientReserves();
+
+error InvalidScalarPrice();
+
+error WindowUnexpired();
+
+error WindowFulfilled();
+
+error AuctionExists();
 
 contract RollingDutchAuction {
 
@@ -125,16 +143,18 @@ contract RollingDutchAuction {
         uint256 windowDuration
     ) external returns (bytes memory) {
         bytes memory auctionId = abi.encode(
-          operatorAddress,
-          reserveToken,
-          purchaseToken,
-          minimumPurchaseAmount,
-          abi.encodePacked(reserveAmount, startingOriginPrice, startTimestamp, endTimestamp, windowDuration)
+            operatorAddress,
+            reserveToken,
+            purchaseToken,
+            minimumPurchaseAmount,
+            abi.encodePacked(reserveAmount, startingOriginPrice, startTimestamp, endTimestamp, windowDuration)
         );
 
         Auction storage state = _auctions[auctionId];
 
-        require(state.price == 0, "AUCTION EXISTS");
+        if (state.price != 0) {
+            revert AuctionExists();
+        }
 
         IERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
 
@@ -212,16 +232,20 @@ contract RollingDutchAuction {
     external returns (bytes memory) {
         Window storage window = _window[auctionId][_windows[auctionId]];
 
-        require(minimumPurchase(auctionId) <= volume, "INSUFFICIENT VOLUME");
+        if (volume < minimumPurchase(auctionId)) {
+            revert InvalidPurchaseVolume();
+        }
 
         bool hasExpired;
 
         if (window.expiry != 0) {
             if (remainingWindowTime(auctionId) > 0) {
                 if (window.price < price) {
-                    require(window.volume <= volume, "INSUFFICIENT WINDOW VOLUME");
+                    if (volume < window.volume) {
+                        revert InvalidWindowVolume();
+                    }
                 } else {
-                    require(window.price < price, "INVALID WINDOW PRICE");
+                    revert InvalidWindowPrice(); 
                 }
             } else {
                 hasExpired = true;
@@ -229,13 +253,19 @@ contract RollingDutchAuction {
         }
 
         if (window.price == 0 || hasExpired) {
-            require(gte(wrap(price), scalarPrice(auctionId)), "INVALID CURVE PRICE");
+            if (gt(scalarPrice(auctionId), wrap(price))) {
+                revert InvalidScalarPrice();
+            }
         }
 
         IERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
 
-        require(_auctions[auctionId].reserves >= (volume / price), "INSUFFICIENT RESERVES");
-        require(maximumPurchase(auctionId) >= (volume / price), "INVALID VOLUME");
+        if (_auctions[auctionId].reserves < (volume / price)) {
+            revert InsufficientReserves();
+        }
+        if (maximumPurchase(auctionId) < (volume / price)) {
+            revert InvalidReserveVolume();
+        }
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
 
@@ -289,8 +319,12 @@ contract RollingDutchAuction {
     function fulfillWindow(bytes memory auctionId, uint256 windowId) public {
         Window storage window = _window[auctionId][windowId];
 
-        require(window.expiry < block.timestamp, "WINDOW UNEXPIRED");
-        require(!window.processed, "WINDOW ALREADY FUFILLED");
+        if (window.expiry > block.timestamp) {
+            revert WindowUnexpired();
+        }
+        if (window.processed) {
+            revert WindowFulfilled();
+        }
 
         (, address bidder, uint256 price, uint256 volume) = abi.decode(window.bidId, (bytes, address, uint256, uint256));
         (uint256 refund, uint256 claim) = balancesOf(_claims[bidder][auctionId]);
