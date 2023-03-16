@@ -5,8 +5,6 @@ import "forge-std/Test.sol";
 import "./mock/Parameters.sol";
 import "./mock/ERC20.sol";
 
-import { inv, wrap, unwrap } from "@prb/math/UD60x18.sol";
-
 import "@root/RDA.sol";
 
 contract RDATest is Test, Parameters {
@@ -104,6 +102,50 @@ contract RDATest is Test, Parameters {
 
          require(remainingTime == 1 days);
     }
+
+    function testRemainingTime() public {
+        uint256 remainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
+        uint256 elapsedTime = 3 hours + 14 minutes + 45 seconds;
+
+        require(remainingTime == 7 days);
+
+        vm.warp(block.timestamp + elapsedTime);
+
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bytes memory bidId = createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        uint256 elapsedWindowTime = 39 minutes + 7 seconds;
+
+        vm.warp(block.timestamp + elapsedWindowTime);
+
+        uint256 remainingWindowTime = RDA(_auctionAddress).remainingWindowTime(_auctionId);
+
+        require(remainingWindowTime == AUCTION_WINDOW_DURATION - elapsedWindowTime);
+
+        vm.warp(block.timestamp + remainingWindowTime);
+
+        uint256 finalWindowTime = RDA(_auctionAddress).remainingWindowTime(_auctionId);
+
+        require(finalWindowTime == 0);
+
+        uint256 newScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bidId = createBid(newScalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        uint256 finalRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
+
+        require(finalRemainingTime == AUCTION_DURATION - elapsedTime);
+    }
+
 
     function testWindowExpiry() public {
         vm.warp(block.timestamp + 33 minutes);
