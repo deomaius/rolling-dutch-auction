@@ -183,7 +183,7 @@ contract RollingDutchAuction {
         * @dev Helper to view an auction's maximum order reserve amount  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */   
-    function maximumPurchase(bytes memory auctionId) public view returns (uint256) {
+    function maximumPurchase(bytes memory auctionId) public returns (uint256) {
         return unwrap(inv(scalarPrice(auctionId)));
     }
 
@@ -191,7 +191,7 @@ contract RollingDutchAuction {
         * @dev Helper to view an auction's active scalar price formatted to uint256  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function scalarPriceUint(bytes memory auctionId) external view returns (uint256) {
+    function scalarPriceUint(bytes memory auctionId) public returns (uint256) {
         return unwrap(scalarPrice(auctionId));
     }
 
@@ -203,7 +203,7 @@ contract RollingDutchAuction {
         * as a product to the origin price (y) and substracted from itself
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) public view returns (UD60x18) {
+    function scalarPrice(bytes memory auctionId) public returns (UD60x18) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
@@ -213,12 +213,12 @@ contract RollingDutchAuction {
         uint256 timestamp = isExpired ? window.expiry : state.windowTimestamp;
 
         UD60x18 t = wrap(block.timestamp - timestamp);
-        UD60x18 t_r = wrap(state.endTimestamp - timestamp);
+        UD60x18 t_r = wrap(state.duration - elapsedTime(auctionId, timestamp));
 
         UD60x18 x = div(add(t, mod(t, sub(t_r, t))), t_r);
         UD60x18 y = !isInitialised ? wrap(state.price) : wrap(window.price);
 
-        return sub(y, mul(ln(exp(x)), y));
+        return sub(y, mul(x, y));
     }
 
     /*  
@@ -298,8 +298,6 @@ contract RollingDutchAuction {
         uint256 auctionElapsedTime = elapsedTime(auctionId, block.timestamp);
         uint256 auctionRemainingTime = _auctions[auctionId].duration - auctionElapsedTime;
 
-        bytes memory winningBidId = _window[auctionId][windowIndex].bidId;
-
         _auctions[auctionId].endTimestamp = block.timestamp + auctionRemainingTime;
         _auctions[auctionId].price = _window[auctionId][windowIndex].price;
 
@@ -307,7 +305,7 @@ contract RollingDutchAuction {
 
         fulfillWindow(auctionId, windowIndex);
 
-        emit Expiration(auctionId, winningBidId, windowIndex);
+        emit Expiration(auctionId,  _window[auctionId][windowIndex].bidId, windowIndex);
 
         return windowIndex + 1;
     }
@@ -375,9 +373,14 @@ contract RollingDutchAuction {
     */     
     function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {
         uint256 windowIndex = _windows[auctionId] + 1;
+        uint256 elapsedTime =  timestamp - _auctions[auctionId].startTimestamp;
         uint256 windowElapsedTime = _auctions[auctionId].windowDuration * windowIndex;
 
-        return timestamp - _auctions[auctionId].startTimestamp - windowElapsedTime;
+        if (elapsedTime > windowElapsedTime) {
+            return elapsedTime - windowElapsedTime; 
+        } else {
+            return elapsedTime;
+        }
     }
 
     /*  
@@ -439,4 +442,6 @@ contract RollingDutchAuction {
     event Claim(bytes indexed auctionId, bytes indexed bidId);
 
     event Withdraw(bytes indexed auctionId);
+
+    event Debug(uint256 a, uint256 b);
 }
