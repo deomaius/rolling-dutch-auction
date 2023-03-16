@@ -1,35 +1,19 @@
 pragma solidity 0.8.13;
 
 import { UD60x18 } from "@prb/math/UD60x18.sol";
+
+import { IRDA } from "@root/interfaces/IRDA.sol";
 import { IERC20 } from "@root/interfaces/IERC20.sol";
 
-import { inv, add, sub, mul, exp, ln, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
+import { inv, add, sub, mul, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
 
 /*
-    * @title Rolling Dutch Auction 
+    * @title Rolling Dutch Auction (RDA) 
     * @author Samuel JJ Gosling 
-    * @description A dutch auction derivative with composite logarithimic decay 
+    * @description A dutch auction derivative with composite decay 
 */
 
-error InvalidPurchaseVolume();
-
-error InvalidReserveVolume();
-
-error InvalidWindowVolume();
-
-error InvalidWindowPrice();
-
-error InsufficientReserves();
-
-error InvalidScalarPrice();
-
-error WindowUnexpired();
-
-error WindowFulfilled();
-
-error AuctionExists();
-
-contract RollingDutchAuction {
+contract RDA is IRDA {
 
     /*  @dev Address mapping for an auction's redeemable balances  */
     mapping(address => mapping(bytes => bytes)) public _claims;
@@ -47,7 +31,7 @@ contract RollingDutchAuction {
         uint256 windowDuration;     /*  @dev Unix time window duration         */
         uint256 windowTimestamp;    /*  @dev Unix timestamp for window start   */
         uint256 startTimestamp;     /*  @dev Unix auction start timestamp      */ 
-        uint256 endTimestamp;       /*  @dev Unix auction end timestamp        */
+        uint256 endTimestamp;        /*  @dev Unix auction end timestamp        */
         uint256 duration;           /*  @dev Unix time auction duration        */
         uint256 proceeds;           /*  @dev Auction proceeds balance          */  
         uint256 reserves;           /*  @dev Auction reserves balance          */
@@ -163,8 +147,8 @@ contract RollingDutchAuction {
         state.windowTimestamp = startTimestamp;
         state.startTimestamp = startTimestamp;
         state.endTimestamp = endTimestamp;
-        state.price = startingOriginPrice;
         state.reserves = reserveAmount;
+        state.price = startingOriginPrice;
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingOriginPrice, endTimestamp);
 
@@ -191,16 +175,18 @@ contract RollingDutchAuction {
         * @dev Helper to view an auction's active scalar price formatted to uint256  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function scalarPriceUint(bytes memory auctionId) public returns (uint256) {
+    function scalarPriceUint(bytes memory auctionId) external returns (uint256) {
         return unwrap(scalarPrice(auctionId));
     }
 
     /*  
-        * @dev Active price decay following time delta (x) between the current 
-        * timestamp and the window's start timestamp or if the window is expired; time 
-        * delta between the window's expiration. Which is the applied as the exponent 
-        * of Euler's number and subject to the natural logarithim. Finally applied as  
-        * as a product to the origin price (y) and substracted from itself
+        * @dev Active price decay proportional to time delta (t) between the current 
+        * timestamp and the window's start timestamp or if the window is expired;  
+        * the window's expiration. Time remaining (t_r) since the predefined 
+        * timestamp until the auctions conclusion, is subtracted from t and applied
+        * as modulo to t subject to addition of itself. The resultant is divided by t_r 
+        * to compute elapsed progress (x) from the last timestamp, x is multipled by 
+        * the origin price (y) and subtracted by y to result the decayed price.
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
     function scalarPrice(bytes memory auctionId) public returns (UD60x18) {
@@ -218,7 +204,7 @@ contract RollingDutchAuction {
         UD60x18 x = div(add(t, mod(t, sub(t_r, t))), t_r);
         UD60x18 y = !isInitialised ? wrap(state.price) : wrap(window.price);
 
-        return sub(y, mul(x, y));
+        return sub(y, mul(y, x));
     }
 
     /*  
@@ -305,7 +291,7 @@ contract RollingDutchAuction {
 
         fulfillWindow(auctionId, windowIndex);
 
-        emit Expiration(auctionId,  _window[auctionId][windowIndex].bidId, windowIndex);
+        emit Expiration(auctionId, _window[auctionId][windowIndex].bidId, windowIndex);
 
         return windowIndex + 1;
     }
@@ -360,10 +346,10 @@ contract RollingDutchAuction {
     function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
         uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
 
-        if (expiryTimestamp == 0 || block.timestamp > expiryTimestamp) {
-            return 0;
-        } else {
+        if (expiryTimestamp > 0 && block.timestamp < expiryTimestamp) {
             return expiryTimestamp - block.timestamp;
+        } else {
+            return 0;
         }
     }
 
@@ -429,19 +415,4 @@ contract RollingDutchAuction {
         emit Claim(auctionId, claimHash);
     }
 
-    event NewAuction(
-        bytes indexed auctionId, address reserveToken, uint256 reserves, uint256 price, uint256 endTimestamp
-    );
-
-    event Offer(bytes indexed auctionId, address indexed owner, bytes indexed bidId, uint256 expiry);
-
-    event Fufillment(bytes indexed auctionId, bytes indexed bidId, uint256 windowId);
-
-    event Expiration(bytes indexed auctionId, bytes indexed bidId, uint256 windowId);
-
-    event Claim(bytes indexed auctionId, bytes indexed bidId);
-
-    event Withdraw(bytes indexed auctionId);
-
-    event Debug(uint256 a, uint256 b);
 }

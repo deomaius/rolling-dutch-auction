@@ -1,13 +1,15 @@
-pragma solidity ^0.8.13;
+pragma solidity 0.8.13;
 
 import "forge-std/Test.sol";
 
 import "./mock/Parameters.sol";
 import "./mock/ERC20.sol";
 
-import "@root/RollingDutchAuction.sol";
+import { inv, wrap, unwrap } from "@prb/math/UD60x18.sol";
 
-contract RollingDutchAuctionTest is Test, Parameters {
+import "@root/RDA.sol";
+
+contract RDATest is Test, Parameters {
     address _auctionAddress;
     address _purchaseToken;
     address _reserveToken;
@@ -18,7 +20,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
         vm.deal(TEST_ADDRESS_ONE, 1 ether);
         vm.deal(TEST_ADDRESS_TWO, 1 ether);
 
-        _auctionAddress = address(new RollingDutchAuction());
+        _auctionAddress = address(new RDA());
         _reserveToken = address(new ERC20("COIN", "COIN", 18));
         _purchaseToken = address(new ERC20("WETH", "WETH", 18));
 
@@ -40,17 +42,17 @@ contract RollingDutchAuctionTest is Test, Parameters {
     }
 
     function testAuctionIdDecoding() public {
-        require(RollingDutchAuction(_auctionAddress).operatorAddress(_auctionId) == TEST_ADDRESS_ONE);
-        require(RollingDutchAuction(_auctionAddress).purchaseToken(_auctionId) == _purchaseToken);
-        require(RollingDutchAuction(_auctionAddress).reserveToken(_auctionId) == _reserveToken);
-        require(RollingDutchAuction(_auctionAddress).minimumPurchase(_auctionId) == AUCTION_MINIMUM_PURCHASE);
+        require(RDA(_auctionAddress).operatorAddress(_auctionId) == TEST_ADDRESS_ONE);
+        require(RDA(_auctionAddress).purchaseToken(_auctionId) == _purchaseToken);
+        require(RDA(_auctionAddress).reserveToken(_auctionId) == _reserveToken);
+        require(RDA(_auctionAddress).minimumPurchase(_auctionId) == AUCTION_MINIMUM_PURCHASE);
     }
 
     function testBidIdDecoding() public {
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
 
-            uint256 scalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
+            uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
 
             bytes memory bidId = createBid(scalarPrice);
 
@@ -66,20 +68,48 @@ contract RollingDutchAuctionTest is Test, Parameters {
     }
 
     function testScalarPrice() public {
-        uint256 startPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
-
         vm.warp(block.timestamp + 6 days + 23 hours + 30 minutes);
 
-        uint256 finishPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
 
-        require(startPrice > (finishPrice * 10));
+        require(scalarPrice == 14039523809524);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bytes memory bidId = createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + AUCTION_WINDOW_DURATION + 20 minutes);
+
+        uint256 windowScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+
+        require(windowScalarPrice == 4679841269842);
+    }
+
+    function testElapsedTime() public {
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bytes memory bidId = createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+         vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
+
+         uint256 remainingTime = RDA(_auctionAddress).elapsedTime(_auctionId, block.timestamp);
+
+         require(remainingTime == 1 days);
     }
 
     function testWindowExpiry() public {
         vm.warp(block.timestamp + 33 minutes);
 
-        uint256 scalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
-        uint256 initialRemainingTime = RollingDutchAuction(_auctionAddress).remainingTime(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 initialRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -87,11 +117,11 @@ contract RollingDutchAuctionTest is Test, Parameters {
             vm.stopPrank();
         /* --------------------------------- */
 
-        require(RollingDutchAuction(_auctionAddress).remainingWindowTime(_auctionId) == AUCTION_WINDOW_DURATION);
+        require(RDA(_auctionAddress).remainingWindowTime(_auctionId) == AUCTION_WINDOW_DURATION);
 
         vm.warp(block.timestamp + 1 hours);
 
-        require(RollingDutchAuction(_auctionAddress).remainingWindowTime(_auctionId) == AUCTION_WINDOW_DURATION - 1 hours);
+        require(RDA(_auctionAddress).remainingWindowTime(_auctionId) == AUCTION_WINDOW_DURATION - 1 hours);
 
         /* -------------OPERATOR------------ */
             vm.startPrank(TEST_ADDRESS_ONE);
@@ -101,14 +131,14 @@ contract RollingDutchAuctionTest is Test, Parameters {
 
         vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
 
-        require(RollingDutchAuction(_auctionAddress).remainingWindowTime(_auctionId) == 0);
+        require(RDA(_auctionAddress).remainingWindowTime(_auctionId) == 0);
 
         vm.warp(block.timestamp + 1 minutes);
 
-        uint256 nextScalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
+        uint256 nextScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
 
-        (uint256 expiryTimestamp, , , , ) = RollingDutchAuction(_auctionAddress)._window(_auctionId, 0);
-        (, , , uint256 windowTimestamp, , , ,) = RollingDutchAuction(_auctionAddress)._auctions(_auctionId);
+        (, uint256 expiryTimestamp,,,) = RDA(_auctionAddress)._window(_auctionId, 0);
+        (, uint256 windowTimestamp,,,,,,) = RDA(_auctionAddress)._auctions(_auctionId);
         uint256 elapsedWindowTimestamp = expiryTimestamp - windowTimestamp;
         uint256 elapsedExpiryTimestamp = block.timestamp - expiryTimestamp;
 
@@ -120,40 +150,28 @@ contract RollingDutchAuctionTest is Test, Parameters {
 
         vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
 
-        uint256 newRemainingTime = RollingDutchAuction(_auctionAddress).remainingTime(_auctionId);
-        uint256 initialRemainingMinusElapsedTime = initialRemainingTime - elapsedExpiryTimestamp - AUCTION_WINDOW_DURATION - 1 hours;
+        uint256 newRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
+        uint256 remainingMinusElapsedTime = initialRemainingTime - elapsedExpiryTimestamp - AUCTION_WINDOW_DURATION - 1 hours;
 
-        require(initialRemainingMinusElapsedTime == newRemainingTime);
+        require(remainingMinusElapsedTime == newRemainingTime);
     }   
 
     function testCommitBid() public {
         vm.warp(block.timestamp + 10 minutes);
         
-        uint256 scalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
             createBid(scalarPrice);
             vm.stopPrank();
         /* --------------------------------- */
-
-        vm.warp(block.timestamp + 1 hours);
-
-       /* -------------OPERATOR------------ */
-            vm.startPrank(TEST_ADDRESS_ONE);
-            createBid(scalarPrice + 1);
-            vm.stopPrank();
-        /* --------------------------------- */
-
-        uint256 newScalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
-
-        require(newScalarPrice == scalarPrice + 1);
     }
 
     function testClaimAndWithdraw() public {
         vm.warp(block.timestamp + 1 minutes);
 
-        uint256 scalarPrice = RollingDutchAuction(_auctionAddress).getScalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -175,18 +193,18 @@ contract RollingDutchAuctionTest is Test, Parameters {
         
         vm.warp(block.timestamp + AUCTION_DURATION + AUCTION_WINDOW_DURATION + 1 hours);
 
-        RollingDutchAuction(_auctionAddress).fufillWindow(_auctionId, 0);
+        RDA(_auctionAddress).fulfillWindow(_auctionId, 0);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
-            RollingDutchAuction(_auctionAddress).claim(TEST_ADDRESS_TWO, _auctionId);
+            RDA(_auctionAddress).redeem(TEST_ADDRESS_TWO, _auctionId);
             vm.stopPrank();
         /* --------------------------------- */
 
         /* -------------OPERATOR------------ */
             vm.startPrank(TEST_ADDRESS_ONE);
-            RollingDutchAuction(_auctionAddress).claim(TEST_ADDRESS_ONE, _auctionId);
-            RollingDutchAuction(_auctionAddress).withdraw(_auctionId);
+            RDA(_auctionAddress).redeem(TEST_ADDRESS_ONE, _auctionId);
+            RDA(_auctionAddress).withdraw(_auctionId);
             vm.stopPrank();
         /* --------------------------------- */
 
@@ -205,7 +223,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
     function createAuction() public returns (bytes memory) {
         ERC20(_reserveToken).approve(_auctionAddress, AUCTION_RESERVES);
 
-        return RollingDutchAuction(_auctionAddress).createAuction(
+        return RDA(_auctionAddress).createAuction(
             TEST_ADDRESS_ONE,
             _reserveToken,
             _purchaseToken,
@@ -221,7 +239,7 @@ contract RollingDutchAuctionTest is Test, Parameters {
     function createBid(uint256 price) public returns (bytes memory) {
         ERC20(_purchaseToken).approve(_auctionAddress, 1 ether);
 
-        return RollingDutchAuction(_auctionAddress).commitBid(_auctionId, price, 1 ether);
+        return RDA(_auctionAddress).commitBid(_auctionId, price, 1 ether);
     }
 
 }
