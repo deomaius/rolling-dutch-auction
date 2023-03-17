@@ -1,11 +1,10 @@
 pragma solidity 0.8.13;
 
+import "@root/RDA.sol";
 import "forge-std/Test.sol";
 
 import "./mock/Parameters.sol";
-import "./mock/ERC20.sol";
-
-import "@root/RDA.sol";
+import "./mock/ERC20M.sol";
 
 contract RDATest is Test, Parameters {
     address _auctionAddress;
@@ -19,14 +18,14 @@ contract RDATest is Test, Parameters {
         vm.deal(TEST_ADDRESS_TWO, 1 ether);
 
         _auctionAddress = address(new RDA());
-        _reserveToken = address(new ERC20("COIN", "COIN", 18));
-        _purchaseToken = address(new ERC20("WETH", "WETH", 18));
+        _reserveToken = address(new ERC20M("COIN", "COIN"));
+        _purchaseToken = address(new ERC20M("WETH", "WETH"));
 
         /* -------------OPERATOR------------ */
             vm.startPrank(TEST_ADDRESS_ONE);
 
-            ERC20(_purchaseToken).mint(1 ether);
-            ERC20(_reserveToken).mint(AUCTION_RESERVES);
+            ERC20M(_purchaseToken).mint(1 ether);
+            ERC20M(_reserveToken).mint(AUCTION_RESERVES);
             _auctionId = createAuction();
 
             vm.stopPrank();
@@ -34,7 +33,7 @@ contract RDATest is Test, Parameters {
 
         /* -------------BIDDER-------------- */
             vm.startPrank(TEST_ADDRESS_TWO);
-            ERC20(_purchaseToken).mint(100 ether);
+            ERC20M(_purchaseToken).mint(100 ether);
             vm.stopPrank();
         /* --------------------------------- */
     }

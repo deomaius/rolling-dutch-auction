@@ -4,8 +4,6 @@ interface IRDA {
 
 	error InvalidPurchaseVolume();
 
-	error InvalidReserveVolume();
-
 	error InvalidWindowVolume();
 
 	error InvalidWindowPrice();
@@ -42,7 +40,7 @@ interface IRDA {
 
     event Offer(bytes indexed auctionId, address indexed owner, bytes indexed bidId, uint256 expiry);
 
-    event Fufillment(bytes indexed auctionId, bytes indexed bidId, uint256 windowId);
+    event Fulfillment(bytes indexed auctionId, bytes indexed bidId, uint256 windowId);
 
     event Expiration(bytes indexed auctionId, bytes indexed bidId, uint256 windowId);
 

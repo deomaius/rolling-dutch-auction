@@ -1,15 +1,14 @@
 pragma solidity 0.8.13;
 
-import { UD60x18 } from "@prb/math/UD60x18.sol";
-
 import { IRDA } from "@root/interfaces/IRDA.sol";
-import { IERC20 } from "@root/interfaces/IERC20.sol";
+import { UD60x18 } from "@prb/math/UD60x18.sol";
+import { IERC20 } from "@openzeppelin/token/ERC20/IERC20.sol";
 
-import { inv, add, sub, mul, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
+import { add, sub, mul, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
 
 /*
     * @title Rolling Dutch Auction (RDA) 
-    * @author Samuel JJ Gosling 
+    * @author Samuel JJ Gosling (@oibilisc)
     * @description A dutch auction derivative with composite decay 
 */
 
@@ -164,18 +163,10 @@ contract RDA is IRDA {
     }
 
     /*  
-        * @dev Helper to view an auction's maximum order reserve amount  
-        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
-    */   
-    function maximumPurchase(bytes memory auctionId) public returns (uint256) {
-        return unwrap(inv(scalarPrice(auctionId)));
-    }
-
-    /*  
         * @dev Helper to view an auction's active scalar price formatted to uint256  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function scalarPriceUint(bytes memory auctionId) external returns (uint256) {
+    function scalarPriceUint(bytes calldata auctionId) external returns (uint256) {
         return unwrap(scalarPrice(auctionId));
     }
 
@@ -186,10 +177,10 @@ contract RDA is IRDA {
         * timestamp until the auctions conclusion, is subtracted from t and applied
         * as modulo to t subject to addition of itself. The resultant is divided by t_r 
         * to compute elapsed progress (x) from the last timestamp, x is multipled by 
-        * the origin price (y) and subtracted by y to result the decayed price.
+        * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) public returns (UD60x18) {
+    function scalarPrice(bytes memory auctionId) public view returns (UD60x18) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
@@ -248,9 +239,6 @@ contract RDA is IRDA {
 
         if (_auctions[auctionId].reserves < (volume / price)) {
             revert InsufficientReserves();
-        }
-        if (maximumPurchase(auctionId) < (volume / price)) {
-            revert InvalidReserveVolume();
         }
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
@@ -322,7 +310,7 @@ contract RDA is IRDA {
 
         _claims[bidder][auctionId] = abi.encode(refund - volume, claim + (volume / price));
 
-        emit Fufillment(auctionId, window.bidId, windowId);
+        emit Fulfillment(auctionId, window.bidId, windowId);
     }
 
     /*  
@@ -359,13 +347,13 @@ contract RDA is IRDA {
     */     
     function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {
         uint256 windowIndex = _windows[auctionId] + 1;
-        uint256 elapsedTime =  timestamp - _auctions[auctionId].startTimestamp;
+        uint256 auctionElapsedTime =  timestamp - _auctions[auctionId].startTimestamp;
         uint256 windowElapsedTime = _auctions[auctionId].windowDuration * windowIndex;
 
-        if (elapsedTime > windowElapsedTime) {
-            return elapsedTime - windowElapsedTime; 
+        if (auctionElapsedTime > windowElapsedTime) {
+            return auctionElapsedTime - windowElapsedTime; 
         } else {
-            return elapsedTime;
+            return auctionElapsedTime;
         }
     }
 
