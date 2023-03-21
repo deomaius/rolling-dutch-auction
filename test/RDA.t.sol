@@ -49,7 +49,7 @@ contract RDATest is Test, Parameters {
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
 
-            uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+            uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
             bytes memory bidId = createBid(scalarPrice);
 
@@ -67,7 +67,7 @@ contract RDATest is Test, Parameters {
     function testScalarPrice() public {
         vm.warp(block.timestamp + 6 days + 23 hours + 30 minutes);
 
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         require(scalarPrice == 14039523809524);
 
@@ -79,7 +79,7 @@ contract RDATest is Test, Parameters {
 
         vm.warp(block.timestamp + AUCTION_WINDOW_DURATION + 20 minutes);
 
-        uint256 windowScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 windowScalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         require(windowScalarPrice == 4679841269842);
     }
@@ -87,7 +87,7 @@ contract RDATest is Test, Parameters {
     function testElapsedTime() public {
         vm.warp(block.timestamp + 1 days);
 
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         /* -------------BIDDER-------------- */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -110,7 +110,7 @@ contract RDATest is Test, Parameters {
 
         vm.warp(block.timestamp + elapsedTime);
 
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         /* -------------BIDDER-------------- */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -132,7 +132,7 @@ contract RDATest is Test, Parameters {
 
         require(finalWindowTime == 0);
 
-        uint256 newScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 newScalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         /* -------------BIDDER-------------- */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -149,7 +149,7 @@ contract RDATest is Test, Parameters {
     function testWindowExpiry() public {
         vm.warp(block.timestamp + 33 minutes);
 
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
         uint256 initialRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
 
         /* -------------BIDDER------------ */
@@ -176,7 +176,7 @@ contract RDATest is Test, Parameters {
 
         vm.warp(block.timestamp + 1 minutes);
 
-        uint256 nextScalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 nextScalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         (, uint256 expiryTimestamp,,,) = RDA(_auctionAddress)._window(_auctionId, 0);
         (, uint256 windowTimestamp,,,,,,) = RDA(_auctionAddress)._auctions(_auctionId);
@@ -200,7 +200,7 @@ contract RDATest is Test, Parameters {
     function testCommitBid() public {
         vm.warp(block.timestamp + 10 minutes);
         
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);
@@ -212,7 +212,7 @@ contract RDATest is Test, Parameters {
     function testClaimAndWithdraw() public {
         vm.warp(block.timestamp + 1 minutes);
 
-        uint256 scalarPrice = RDA(_auctionAddress).scalarPriceUint(_auctionId);
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
 
         /* -------------BIDDER------------ */
             vm.startPrank(TEST_ADDRESS_TWO);

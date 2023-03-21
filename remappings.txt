@@ -1,4 +1,3 @@
-@prb/math/=lib/prb-math/src/
 @openzeppelin/=lib/openzeppelin-contracts/contracts/
 @root/=src/
 

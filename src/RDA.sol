@@ -1,14 +1,11 @@
 pragma solidity 0.8.13;
 
 import { IRDA } from "@root/interfaces/IRDA.sol";
-import { UD60x18 } from "@prb/math/UD60x18.sol";
 import { IERC20 } from "@openzeppelin/token/ERC20/IERC20.sol";
-
-import { add, sub, mul, wrap, unwrap, gt, mod, div } from "@prb/math/UD60x18.sol";
 
 /*
     * @title Rolling Dutch Auction (RDA) 
-    * @author Samuel JJ Gosling (@oibilisc)
+    * @author Samuel JJ Gosling (@deomaius)
     * @description A dutch auction derivative with composite decay 
 */
 
@@ -163,14 +160,6 @@ contract RDA is IRDA {
     }
 
     /*  
-        * @dev Helper to view an auction's active scalar price formatted to uint256  
-        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
-    */  
-    function scalarPriceUint(bytes calldata auctionId) external returns (uint256) {
-        return unwrap(scalarPrice(auctionId));
-    }
-
-    /*  
         * @dev Active price decay proportional to time delta (t) between the current 
         * timestamp and the window's start timestamp or if the window is expired;  
         * the window's expiration. Time remaining (t_r) since the predefined 
@@ -180,7 +169,7 @@ contract RDA is IRDA {
         * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) public view returns (UD60x18) {
+    function scalarPrice(bytes memory auctionId) public view returns (uint256) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
@@ -189,13 +178,15 @@ contract RDA is IRDA {
 
         uint256 timestamp = isExpired ? window.expiry : state.windowTimestamp;
 
-        UD60x18 t = wrap(block.timestamp - timestamp);
-        UD60x18 t_r = wrap(state.duration - elapsedTime(auctionId, timestamp));
+        uint256 t = block.timestamp - timestamp;
+        uint256 t_r = state.duration - elapsedTime(auctionId, timestamp);
 
-        UD60x18 x = div(add(t, mod(t, sub(t_r, t))), t_r);
-        UD60x18 y = !isInitialised ? wrap(state.price) : wrap(window.price);
+        uint256 b_18 = 1e18;
+        uint256 t_mod = t % (t_r - t);
+        uint256 x = (t + t_mod) * b_18 / t_r;        
+        uint256 y = !isInitialised ? state.price : window.price;
 
-        return sub(y, mul(y, x));
+        return y - (y * x) / b_18;
     }
 
     /*  
@@ -230,7 +221,7 @@ contract RDA is IRDA {
         }
 
         if (window.price == 0 || hasExpired) {
-            if (gt(scalarPrice(auctionId), wrap(price))) {
+            if (price < scalarPrice(auctionId)) {
                 revert InvalidScalarPrice();
             }
         }
