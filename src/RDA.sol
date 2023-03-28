@@ -268,18 +268,29 @@ contract RDA is IRDA {
 
         _windows[auctionId] = windowIndex + 1;
 
-        fulfillWindow(auctionId, windowIndex);
+        _fulfillWindow(auctionId, windowIndex);
 
         emit Expiration(auctionId, _window[auctionId][windowIndex].bidId, windowIndex);
 
         return windowIndex + 1;
     }
 
+
     /*  
-        * @dev Fulfill a window index even if the auction is inactive 
+        * @dev Fulfill a window index for an inactive auction
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function fulfillWindow(bytes memory auctionId, uint256 windowId) public {
+    function fulfillWindow(bytes memory auctionId, uint256 windowId) 
+        inactiveAuction(auctionId)
+    public {    
+        _fulfillWindow(auctionId, windowId);
+    }
+
+    /*  
+        * @dev Fulfill a window index
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
+    function _fulfillWindow(bytes memory auctionId, uint256 windowId) public {
         Window storage window = _window[auctionId][windowId];
 
         if (window.expiry > block.timestamp) {
