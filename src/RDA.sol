@@ -183,10 +183,11 @@ contract RDA is IRDA {
 
         uint256 b_18 = 1e18;
         uint256 t_mod = t % (t_r - t);
-        uint256 x = (t + t_mod) * b_18 / t_r;        
+        uint256 x = (t + t_mod) * b_18;        
         uint256 y = !isInitialised ? state.price : window.price;
+        uint256 y_x = y * x / t_r;
 
-        return y - (y * x) / b_18;
+        return y - y_x / b_18;
     }
 
     /*  
