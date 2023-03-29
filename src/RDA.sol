@@ -169,7 +169,7 @@ contract RDA is IRDA {
         * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) public view returns (uint256) {
+    function scalarPrice(bytes memory auctionId) public returns (uint256) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
@@ -179,7 +179,7 @@ contract RDA is IRDA {
         uint256 timestamp = isExpired ? window.expiry : state.windowTimestamp;
 
         uint256 t = block.timestamp - timestamp;
-        uint256 t_r = state.duration - elapsedTime(auctionId, timestamp);
+        uint256 t_r = state.duration - elapsedTimeFromWindow(auctionId);
 
         uint256 b_18 = 1e18;
         uint256 t_mod = t % (t_r - t);
@@ -261,7 +261,7 @@ contract RDA is IRDA {
     */     
     function windowExpiration(bytes memory auctionId) internal returns (uint256) {
         uint256 windowIndex = _windows[auctionId];
-        uint256 auctionElapsedTime = elapsedTime(auctionId, block.timestamp);
+        uint256 auctionElapsedTime = elapsedTime(auctionId);
         uint256 auctionRemainingTime = _auctions[auctionId].duration - auctionElapsedTime;
 
         _auctions[auctionId].endTimestamp = block.timestamp + auctionRemainingTime;
@@ -291,7 +291,7 @@ contract RDA is IRDA {
         * @dev Fulfill a window index
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function _fulfillWindow(bytes memory auctionId, uint256 windowId) public {
+    function _fulfillWindow(bytes memory auctionId, uint256 windowId) internal {
         Window storage window = _window[auctionId][windowId];
 
         if (window.expiry > block.timestamp) {
@@ -302,6 +302,7 @@ contract RDA is IRDA {
         }
 
         (, address bidder, uint256 price, uint256 volume) = abi.decode(window.bidId, (bytes, address, uint256, uint256));
+
         (uint256 refund, uint256 claim) = balancesOf(_claims[bidder][auctionId]);
 
         delete _claims[bidder][auctionId];
@@ -320,14 +321,8 @@ contract RDA is IRDA {
         * @dev Helper to view an auction's remaining duration
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function remainingTime(bytes memory auctionId) public view returns (uint256) {
-        uint256 endTimestamp = _auctions[auctionId].endTimestamp;
-
-        if (endTimestamp > block.timestamp) {
-            return endTimestamp - block.timestamp;
-        } else {
-            return 0;
-        }
+    function remainingTime(bytes memory auctionId) public returns (uint256) {
+        return _auctions[auctionId].duration - elapsedTime(auctionId);
     }
 
     /*  
@@ -348,16 +343,40 @@ contract RDA is IRDA {
         * @dev Helper to view an auction's progress in unix time
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */     
-    function elapsedTime(bytes memory auctionId, uint256 timestamp) public view returns (uint256) {
-        uint256 windowIndex = _windows[auctionId] + 1;
-        uint256 auctionElapsedTime =  timestamp - _auctions[auctionId].startTimestamp;
-        uint256 windowElapsedTime = _auctions[auctionId].windowDuration * windowIndex;
+    function elapsedTime(bytes memory auctionId) public returns (uint256) {
+        return block.timestamp - windowElapsedTime(auctionId) - _auctions[auctionId].startTimestamp;
+    }
 
-        if (auctionElapsedTime > windowElapsedTime) {
-            return auctionElapsedTime - windowElapsedTime; 
+    function windowElapsedTime(bytes memory auctionId) public returns (uint256) {
+        uint256 windowIndex = _windows[auctionId];
+
+        Auction storage state = _auctions[auctionId];
+        Window storage window = _window[auctionId][windowIndex];
+
+        uint256 elapsedWindowsTime = state.windowDuration * (windowIndex + 1); 
+
+        if (window.expiry != 0) {
+            if (remainingWindowTime(auctionId) > 0) {
+                return elapsedWindowsTime - remainingWindowTime(auctionId);
+            } else {
+                return elapsedWindowsTime;
+            }
         } else {
-            return auctionElapsedTime;
+            return 0;
         }
+    }
+
+    function elapsedTimeFromWindow(bytes memory auctionId) public returns (uint256) {
+        Auction storage state = _auctions[auctionId];
+        Window storage window = _window[auctionId][_windows[auctionId]];
+
+        uint256 endTimestamp = state.windowTimestamp;
+
+        if (window.expiry != 0 && window.expiry < block.timestamp) {
+            endTimestamp = window.expiry;
+        }
+
+        return endTimestamp - windowElapsedTime(auctionId) - state.startTimestamp;
     }
 
     /*  
@@ -405,5 +424,7 @@ contract RDA is IRDA {
 
         emit Claim(auctionId, claimHash);
     }
+
+    event Debug(uint256 a, uint256 b);
 
 }
