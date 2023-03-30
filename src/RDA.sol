@@ -291,7 +291,6 @@ contract RDA is IRDA {
         return windowIndex + 1;
     }
 
-
     /*  
         * @dev Fulfill a window index for an inactive auction
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
@@ -318,17 +317,22 @@ contract RDA is IRDA {
         }
 
         (, address bidder, uint256 price, uint256 volume) = abi.decode(window.bidId, (bytes, address, uint256, uint256));
-
         (uint256 refund, uint256 claim) = balancesOf(_claims[bidder][auctionId]);
 
         delete _claims[bidder][auctionId];
 
         window.processed = true;
 
-        state.reserves -= volume / price;
-        state.proceeds += volume;
+        uint256 volumeNormalised = volume - (volume % price);
+        uint256 orderAmount = volumeNormalised * 1e18 / price;
 
-        _claims[bidder][auctionId] = abi.encode(refund - volume, claim + (volume / price));
+        claim += orderAmount;
+        refund -= volumeNormalised;
+
+        state.reserves -= orderAmount;
+        state.proceeds += volumeNormalised;
+
+        _claims[bidder][auctionId] = abi.encode(refund, claim);
 
         emit Fulfillment(auctionId, window.bidId, windowId);
     }

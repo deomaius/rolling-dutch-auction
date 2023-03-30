@@ -97,7 +97,7 @@ contract RDATest is Test, Parameters {
 
          vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
 
-         uint256 remainingTime = RDA(_auctionAddress).elapsedTime(_auctionId, block.timestamp);
+         uint256 remainingTime = RDA(_auctionAddress).elapsedTime(_auctionId);
 
          require(remainingTime == 1 days);
     }
@@ -142,6 +142,7 @@ contract RDATest is Test, Parameters {
 
         uint256 finalRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
 
+        emit log_uint(AUCTION_DURATION - elapsedTime);
         require(finalRemainingTime == AUCTION_DURATION - elapsedTime);
     }
 
@@ -192,7 +193,7 @@ contract RDATest is Test, Parameters {
         vm.warp(block.timestamp + AUCTION_WINDOW_DURATION);
 
         uint256 newRemainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
-        uint256 remainingMinusElapsedTime = initialRemainingTime - elapsedExpiryTimestamp - AUCTION_WINDOW_DURATION - 1 hours;
+        uint256 remainingMinusElapsedTime = initialRemainingTime - elapsedExpiryTimestamp - 1 hours;
 
         require(remainingMinusElapsedTime == newRemainingTime);
     }   
@@ -232,7 +233,7 @@ contract RDATest is Test, Parameters {
             vm.stopPrank();
         /* --------------------------------- */
         
-        vm.warp(block.timestamp + AUCTION_DURATION + AUCTION_WINDOW_DURATION + 1 hours);
+        vm.warp(block.timestamp + AUCTION_DURATION - 1 minutes + AUCTION_WINDOW_DURATION);
 
         RDA(_auctionAddress).fulfillWindow(_auctionId, 0);
 
@@ -253,12 +254,15 @@ contract RDATest is Test, Parameters {
         uint256 operatorRTokenBalance = ERC20(_reserveToken).balanceOf(TEST_ADDRESS_ONE);
         uint256 bidderPTokenBalance = ERC20(_purchaseToken).balanceOf(TEST_ADDRESS_TWO);
         uint256 bidderRTokenBalance = ERC20(_reserveToken).balanceOf(TEST_ADDRESS_TWO);
-        uint256 remainingReserves = AUCTION_RESERVES - (1 ether / (scalarPrice + 2));
 
-        require(bidderRTokenBalance == 1 ether / (scalarPrice + 2));
+        uint256 dustRemainder = 1 ether  % (scalarPrice + 2);
+        uint256 orderAmount = (1 ether - dustRemainder) * 1e18 / (scalarPrice + 2);
+        uint256 remainingReserves = AUCTION_RESERVES - orderAmount;
+
+        require(bidderRTokenBalance == orderAmount);
         require(operatorRTokenBalance == remainingReserves);
-        require(operatorPTokenBalance == 2 ether);
-        require(bidderPTokenBalance == 99 ether);
+        require(operatorPTokenBalance == 2 ether - dustRemainder);
+        require(bidderPTokenBalance == 99 ether + dustRemainder);
     }
 
     function createAuction() public returns (bytes memory) {
