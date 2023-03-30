@@ -1,7 +1,7 @@
 pragma solidity 0.8.13;
 
 import { IRDA } from "@root/interfaces/IRDA.sol";
-import { IERC20 } from "@openzeppelin/token/ERC20/IERC20.sol";
+import { ERC20 } from "@openzeppelin/token/ERC20/ERC20.sol";
 
 /*
     * @title Rolling Dutch Auction (RDA) 
@@ -151,8 +151,11 @@ contract RDA is IRDA {
         if (state.price != 0) {
             revert AuctionExists();
         }
+        if (ERC20(reserveToken).decimals() != ERC20(purchaseToken).decimals()){
+            revert InvalidTokenDecimals();
+        }
 
-        IERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
+        ERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
 
         state.duration = endTimestamp - startTimestamp;
         state.windowDuration = windowDuration;
@@ -241,10 +244,13 @@ contract RDA is IRDA {
             }
         }
 
-        IERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
+        ERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
 
         if (state.reserves < (volume / price)) {
             revert InsufficientReserves();
+        }
+        if (volume < price) {
+            revert InvalidReserveVolume();
         }
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
@@ -412,10 +418,10 @@ contract RDA is IRDA {
         delete _auctions[auctionId].reserves;
 
         if (proceeds > 0) {
-            IERC20(purchaseToken(auctionId)).transfer(operatorAddress(auctionId), proceeds);
+            ERC20(purchaseToken(auctionId)).transfer(operatorAddress(auctionId), proceeds);
         }
         if (reserves > 0) {
-            IERC20(reserveToken(auctionId)).transfer(operatorAddress(auctionId), reserves);
+            ERC20(reserveToken(auctionId)).transfer(operatorAddress(auctionId), reserves);
         }
 
         emit Withdraw(auctionId);
@@ -435,10 +441,10 @@ contract RDA is IRDA {
         delete _claims[bidder][auctionId];
 
         if (refund > 0) {
-            IERC20(purchaseToken(auctionId)).transfer(bidder, refund);
+            ERC20(purchaseToken(auctionId)).transfer(bidder, refund);
         }
         if (claim > 0) {
-            IERC20(reserveToken(auctionId)).transfer(bidder, claim);
+            ERC20(reserveToken(auctionId)).transfer(bidder, claim);
         }
 
         emit Claim(auctionId, claimHash);

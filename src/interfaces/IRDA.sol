@@ -4,11 +4,15 @@ interface IRDA {
 
 	error InvalidPurchaseVolume();
 
+    error InvalidReserveVolume();
+
 	error InvalidWindowVolume();
 
 	error InvalidWindowPrice();
 
 	error InsufficientReserves();
+
+    error InvalidTokenDecimals();
 
 	error InvalidScalarPrice();
 
