@@ -152,8 +152,19 @@ contract RDA is IRDA {
 
         Auction storage state = _auctions[auctionId];
 
+        uint256 auctionDuration = endTimestamp - startTimestamp;
+
         if (state.price != 0) {
             revert AuctionExists();
+        }
+        if (startingOriginPrice == 0) {
+            revert InvalidAuctionPrice();
+        }
+        if (auctionDuration < 1 days || windowDuration < 2 hours) {
+            revert InvalidAuctionDurations();
+        }
+        if (startTimestamp < block.timestamp || endTimestamp < block.timestamp) {
+            revert InvalidAuctionTimestamps();
         }
         if (ERC20(reserveToken).decimals() != ERC20(purchaseToken).decimals()){
             revert InvalidTokenDecimals();

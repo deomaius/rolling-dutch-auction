@@ -14,6 +14,12 @@ interface IRDA {
 
     error InvalidTokenDecimals();
 
+    error InvalidAuctionDurations();
+
+    error InvalidAuctionPrice();
+
+    error InvalidAuctionTimestamps();
+
     error InvalidScalarPrice();
 
     error WindowUnexpired();
