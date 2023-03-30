@@ -188,7 +188,9 @@ contract RDA is IRDA {
         * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) public view returns (uint256) {
+    function scalarPrice(bytes memory auctionId) 
+        activeAuction(auctionId)
+    public view returns (uint256) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
