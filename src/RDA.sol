@@ -244,27 +244,30 @@ contract RDA is IRDA {
             }
         }
 
-        ERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), volume);
+        uint256 orderVolume = volume - (volume % price);
+        uint256 orderAmount = orderVolume * 1e18 / price;
 
-        if (state.reserves < (volume / price)) {
+        if (state.reserves < orderAmount) {
             revert InsufficientReserves();
         }
         if (volume < price) {
             revert InvalidReserveVolume();
         }
 
-        bytes memory bidId = abi.encode(auctionId, msg.sender, price, volume);
+        ERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), orderVolume);
+
+        bytes memory bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
 
         (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
 
-        _claims[msg.sender][auctionId] = abi.encode(refund + volume, claim);
+        _claims[msg.sender][auctionId] = abi.encode(refund + orderVolume, claim);
 
         if (hasExpired) {
             window = _window[auctionId][windowExpiration(auctionId)];
         } 
 
         window.expiry = block.timestamp + state.windowDuration;
-        window.volume = volume;
+        window.volume = orderVolume;
         window.price = price;
         window.bidId = bidId;
 
@@ -329,16 +332,12 @@ contract RDA is IRDA {
 
         window.processed = true;
 
-        uint256 volumeNormalised = volume - (volume % price);
-        uint256 orderAmount = volumeNormalised * 1e18 / price;
-
-        claim += orderAmount;
-        refund -= volumeNormalised;
+        uint256 orderAmount = volume * 1e18 / price;
 
         state.reserves -= orderAmount;
-        state.proceeds += volumeNormalised;
+        state.proceeds += volume;
 
-        _claims[bidder][auctionId] = abi.encode(refund, claim);
+        _claims[bidder][auctionId] = abi.encode(refund - volume, claim + orderAmount);
 
         emit Fulfillment(auctionId, window.bidId, windowId);
     }

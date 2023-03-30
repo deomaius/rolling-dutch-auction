@@ -55,10 +55,12 @@ contract RDATest is Test, Parameters {
 
             (bytes memory auctionId, address biddingAddress, uint256 price, uint256 volume) = abi.decode(bidId, (bytes, address, uint256, uint256));
 
+            uint256 dustRemainder = 1 ether % scalarPrice;
+
             require(keccak256(auctionId) == keccak256(_auctionId));
             require(biddingAddress == TEST_ADDRESS_TWO);
+            require(volume == 1 ether - dustRemainder);
             require(price == scalarPrice);
-            require(volume == 1 ether);
 
             vm.stopPrank();
         /* --------------------------------- */
