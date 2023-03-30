@@ -2,25 +2,25 @@ pragma solidity 0.8.13;
 
 interface IRDA {
 
-	error InvalidPurchaseVolume();
+    error InvalidPurchaseVolume();
 
     error InvalidReserveVolume();
 
-	error InvalidWindowVolume();
+    error InvalidWindowVolume();
 
-	error InvalidWindowPrice();
+    error InvalidWindowPrice();
 
-	error InsufficientReserves();
+    error InsufficientReserves();
 
     error InvalidTokenDecimals();
 
-	error InvalidScalarPrice();
+    error InvalidScalarPrice();
 
-	error WindowUnexpired();
+    error WindowUnexpired();
 
-	error WindowFulfilled();
+    error WindowFulfilled();
 
-	error AuctionExists();
+    error AuctionExists();
 
     function createAuction(
      	address operatorAddress,

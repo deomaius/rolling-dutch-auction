@@ -1,7 +1,9 @@
 pragma solidity 0.8.13;
 
 import { IRDA } from "@root/interfaces/IRDA.sol";
+
 import { ERC20 } from "@openzeppelin/token/ERC20/ERC20.sol";
+import { SafeERC20 } from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 
 /*
     * @title Rolling Dutch Auction (RDA) 
@@ -10,6 +12,8 @@ import { ERC20 } from "@openzeppelin/token/ERC20/ERC20.sol";
 */
 
 contract RDA is IRDA {
+    
+    using SafeERC20 for ERC20;
 
     /*  @dev Address mapping for an auction's redeemable balances  */
     mapping(address => mapping(bytes => bytes)) public _claims;
@@ -27,7 +31,7 @@ contract RDA is IRDA {
         uint256 windowDuration;     /*  @dev Unix time window duration         */
         uint256 windowTimestamp;    /*  @dev Unix timestamp for window start   */
         uint256 startTimestamp;     /*  @dev Unix auction start timestamp      */ 
-        uint256 endTimestamp;        /*  @dev Unix auction end timestamp        */
+        uint256 endTimestamp;       /*  @dev Unix auction end timestamp        */
         uint256 duration;           /*  @dev Unix time auction duration        */
         uint256 proceeds;           /*  @dev Auction proceeds balance          */  
         uint256 reserves;           /*  @dev Auction reserves balance          */
@@ -155,7 +159,7 @@ contract RDA is IRDA {
             revert InvalidTokenDecimals();
         }
 
-        ERC20(reserveToken).transferFrom(msg.sender, address(this), reserveAmount);
+        ERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
 
         state.duration = endTimestamp - startTimestamp;
         state.windowDuration = windowDuration;
@@ -200,12 +204,11 @@ contract RDA is IRDA {
         uint256 t = block.timestamp - ts;
         uint256 t_r = state.duration - elapsedTimeFromWindow(auctionId);
 
-        uint256 b_18 = 1e18;
         uint256 t_mod = t % (t_r - t);
-        uint256 x = (t + t_mod) * b_18;        
+        uint256 x = (t + t_mod) * 1e18;        
         uint256 y_x = y * x / t_r;
 
-        return y - y_x / b_18;
+        return y - y_x / 1e18;
     }
 
     /*  
@@ -256,7 +259,7 @@ contract RDA is IRDA {
             revert InvalidReserveVolume();
         }
 
-        ERC20(purchaseToken(auctionId)).transferFrom(msg.sender, address(this), orderVolume);
+        ERC20(purchaseToken(auctionId)).safeTransferFrom(msg.sender, address(this), orderVolume);
 
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
 
@@ -419,10 +422,10 @@ contract RDA is IRDA {
         delete _auctions[auctionId].reserves;
 
         if (proceeds > 0) {
-            ERC20(purchaseToken(auctionId)).transfer(operatorAddress(auctionId), proceeds);
+            ERC20(purchaseToken(auctionId)).safeTransfer(operatorAddress(auctionId), proceeds);
         }
         if (reserves > 0) {
-            ERC20(reserveToken(auctionId)).transfer(operatorAddress(auctionId), reserves);
+            ERC20(reserveToken(auctionId)).safeTransfer(operatorAddress(auctionId), reserves);
         }
 
         emit Withdraw(auctionId);
@@ -442,10 +445,10 @@ contract RDA is IRDA {
         delete _claims[bidder][auctionId];
 
         if (refund > 0) {
-            ERC20(purchaseToken(auctionId)).transfer(bidder, refund);
+            ERC20(purchaseToken(auctionId)).safeTransfer(bidder, refund);
         }
         if (claim > 0) {
-            ERC20(reserveToken(auctionId)).transfer(bidder, claim);
+            ERC20(reserveToken(auctionId)).safeTransfer(bidder, claim);
         }
 
         emit Claim(auctionId, claimHash);
