@@ -4,6 +4,7 @@ import { IRDA } from "@root/interfaces/IRDA.sol";
 
 import { ERC20 } from "@openzeppelin/token/ERC20/ERC20.sol";
 import { SafeERC20 } from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/security/ReentrancyGuard.sol";
 
 /*
     * @title Rolling Dutch Auction (RDA) 
@@ -11,7 +12,7 @@ import { SafeERC20 } from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
     * @description A dutch auction derivative with composite decay 
 */
 
-contract RDA is IRDA {
+contract RDA is IRDA, ReentrancyGuard {
     
     using SafeERC20 for ERC20;
 
@@ -172,13 +173,13 @@ contract RDA is IRDA {
 
         ERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
 
-        state.duration = endTimestamp - startTimestamp;
         state.windowDuration = windowDuration;
         state.windowTimestamp = startTimestamp;
         state.startTimestamp = startTimestamp;
         state.endTimestamp = endTimestamp;
-        state.reserves = reserveAmount;
         state.price = startingOriginPrice;
+        state.duration = auctionDuration;
+        state.reserves = reserveAmount;
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingOriginPrice, endTimestamp);
 
@@ -230,6 +231,7 @@ contract RDA is IRDA {
     */     
     function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
         activeAuction(auctionId) 
+        nonReentrant
     external returns (bytes memory) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
@@ -270,8 +272,6 @@ contract RDA is IRDA {
             revert InvalidReserveVolume();
         }
 
-        ERC20(purchaseToken(auctionId)).safeTransferFrom(msg.sender, address(this), orderVolume);
-
         bytes memory bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
 
         (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
@@ -290,6 +290,8 @@ contract RDA is IRDA {
         state.windowTimestamp = block.timestamp;
 
         emit Offer(auctionId, msg.sender, window.bidId, window.expiry);
+
+        ERC20(purchaseToken(auctionId)).safeTransferFrom(msg.sender, address(this), orderVolume);
 
         return bidId;
     }
