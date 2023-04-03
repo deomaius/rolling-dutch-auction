@@ -52,7 +52,10 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
     modifier activeAuction(bytes memory auctionId) {
-        require(remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0);
+        require(
+            remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0,
+            "INACTIVE AUCTION"
+        );
         _;
     }
 
@@ -61,7 +64,10 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
     modifier inactiveAuction(bytes memory auctionId) {
-        require(remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0);
+        require(
+            remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0,
+            "ACTIVE AUCTION"
+        );
         _;
     }
 
@@ -142,7 +148,7 @@ contract RDA is IRDA, ReentrancyGuard {
         uint256 startTimestamp,
         uint256 endTimestamp,
         uint256 windowDuration
-    ) external returns (bytes memory) {
+    ) override external returns (bytes memory) {
         bytes memory auctionId = abi.encode(
             operatorAddress,
             reserveToken,
@@ -232,7 +238,7 @@ contract RDA is IRDA, ReentrancyGuard {
     function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
         activeAuction(auctionId) 
         nonReentrant
-    external returns (bytes memory) {
+    override external returns (bytes memory bidId) {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][_windows[auctionId]];
 
@@ -263,16 +269,15 @@ contract RDA is IRDA, ReentrancyGuard {
         }
 
         uint256 orderVolume = volume - (volume % price);
-        uint256 orderAmount = orderVolume * 1e18 / price;
 
-        if (state.reserves < orderAmount) {
+        if (state.reserves < orderVolume * 1e18 / price) {
             revert InsufficientReserves();
         }
         if (volume < price) {
             revert InvalidReserveVolume();
         }
 
-        bytes memory bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
+        bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
 
         (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
 
@@ -289,11 +294,9 @@ contract RDA is IRDA, ReentrancyGuard {
 
         state.windowTimestamp = block.timestamp;
 
-        emit Offer(auctionId, msg.sender, window.bidId, window.expiry);
+        emit Offer(auctionId, msg.sender, bidId, window.expiry);
 
         ERC20(purchaseToken(auctionId)).safeTransferFrom(msg.sender, address(this), orderVolume);
-
-        return bidId;
     }
 
     /*  
@@ -324,7 +327,7 @@ contract RDA is IRDA, ReentrancyGuard {
     */  
     function fulfillWindow(bytes memory auctionId, uint256 windowId) 
         inactiveAuction(auctionId)
-    public {    
+    override public {    
         _fulfillWindow(auctionId, windowId);
     }
 
@@ -427,7 +430,7 @@ contract RDA is IRDA, ReentrancyGuard {
     */     
     function withdraw(bytes memory auctionId) 
         inactiveAuction(auctionId) 
-    external {
+    override external {
         uint256 proceeds = _auctions[auctionId].proceeds;
         uint256 reserves = _auctions[auctionId].reserves;
 
@@ -450,7 +453,7 @@ contract RDA is IRDA, ReentrancyGuard {
     */  
     function redeem(address bidder, bytes memory auctionId)
         inactiveAuction(auctionId) 
-    external {
+    override external {
         bytes memory claimHash = _claims[bidder][auctionId];
 
         (uint256 refund, uint256 claim) = balancesOf(claimHash);

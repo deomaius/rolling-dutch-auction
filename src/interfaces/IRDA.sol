@@ -39,6 +39,10 @@ interface IRDA {
       	uint256 endTimestamp,
       	uint256 windowDuration
     ) external returns (bytes memory);
+        
+    function commitBid(bytes memory auctionId, uint256 price, uint256 volume) external returns (bytes memory);
+
+    function fulfillWindow(bytes memory auctionId, uint256 windowId) external; 
 
     function withdraw(bytes memory auctionId) external;
     
