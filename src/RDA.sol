@@ -51,7 +51,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Conditioner to ensure an auction is active  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    modifier activeAuction(bytes memory auctionId) {
+    modifier activeAuction(bytes calldata auctionId) {
         require(
             remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0,
             "INACTIVE AUCTION"
@@ -63,7 +63,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Conditioner to ensure an auction is inactive  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    modifier inactiveAuction(bytes memory auctionId) {
+    modifier inactiveAuction(bytes calldata auctionId) {
         require(
             remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0,
             "ACTIVE AUCTION"
@@ -75,7 +75,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's operator address  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function operatorAddress(bytes memory auctionId) public pure returns (address opAddress) {
+    function operatorAddress(bytes calldata auctionId) public pure returns (address opAddress) {
         (opAddress,,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
@@ -83,21 +83,21 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's purchase token address  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Ancoded auction parameter identifier    
     */  
-    function purchaseToken(bytes memory auctionId) public pure returns (address tokenAddress) {
+    function purchaseToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
         (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
-    function isWindowInit(bytes memory auctionId) public view returns (bool) {
+    function isWindowInit(bytes calldata auctionId) public view returns (bool) {
         return _window[auctionId][_windows[auctionId]].expiry != 0;   
     }
 
-    function isWindowActive(bytes memory auctionId) public view returns (bool) {
+    function isWindowActive(bytes calldata auctionId) public view returns (bool) {
         Window storage window = _window[auctionId][_windows[auctionId]];
 
         return isWindowInit(auctionId) && window.expiry > block.timestamp;   
     }
 
-    function isWindowExpired(bytes memory auctionId) public view returns (bool) {
+    function isWindowExpired(bytes calldata auctionId) public view returns (bool) {
         Window storage window = _window[auctionId][_windows[auctionId]];
 
         return isWindowInit(auctionId) && window.expiry < block.timestamp;   
@@ -107,7 +107,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's reserve token address  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function reserveToken(bytes memory auctionId) public pure returns (address tokenAddress) {
+    function reserveToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
         (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
@@ -157,6 +157,8 @@ contract RDA is IRDA, ReentrancyGuard {
             abi.encodePacked(reserveAmount, startingOriginPrice, startTimestamp, endTimestamp, windowDuration)
         );
 
+        ERC20 tokenReserve = ERC20(reserveToken);
+
         Auction storage state = _auctions[auctionId];
 
         uint256 auctionDuration = endTimestamp - startTimestamp;
@@ -177,7 +179,7 @@ contract RDA is IRDA, ReentrancyGuard {
             revert InvalidTokenDecimals();
         }
 
-        ERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
+        tokenReserve.safeTransferFrom(msg.sender, address(this), reserveAmount);
 
         state.windowDuration = windowDuration;
         state.windowTimestamp = startTimestamp;
@@ -196,7 +198,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's minimum purchase amount   
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function minimumPurchase(bytes memory auctionId) public pure returns (uint256 minimumAmount) {
+    function minimumPurchase(bytes calldata auctionId) public pure returns (uint256 minimumAmount) {
         (,,, minimumAmount,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
@@ -210,7 +212,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */      
-    function scalarPrice(bytes memory auctionId) 
+    function scalarPrice(bytes calldata auctionId) 
         activeAuction(auctionId)
     public view returns (uint256) {
         Auction storage state = _auctions[auctionId];
@@ -235,7 +237,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param p͟r͟i͟c͟e͟ Bid order price  
         * @param v͟o͟l͟u͟m͟e͟ Bid order volume
     */     
-    function commitBid(bytes memory auctionId, uint256 price, uint256 volume) 
+    function commitBid(bytes calldata auctionId, uint256 price, uint256 volume) 
         activeAuction(auctionId) 
         nonReentrant
     override external returns (bytes memory bidId) {
@@ -296,14 +298,16 @@ contract RDA is IRDA, ReentrancyGuard {
 
         emit Offer(auctionId, msg.sender, bidId, window.expiry);
 
-        ERC20(purchaseToken(auctionId)).safeTransferFrom(msg.sender, address(this), orderVolume);
+        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
+
+        tokenPurchase.safeTransferFrom(msg.sender, address(this), orderVolume);
     }
 
     /*  
         * @dev Expire and fulfill an auction's active window  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */     
-    function windowExpiration(bytes memory auctionId) internal returns (uint256) {
+    function windowExpiration(bytes calldata auctionId) internal returns (uint256) {
         uint256 windowIndex = _windows[auctionId];
 
         Auction storage state = _auctions[auctionId];
@@ -325,7 +329,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Fulfill a window index for an inactive auction
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function fulfillWindow(bytes memory auctionId, uint256 windowId) 
+    function fulfillWindow(bytes calldata auctionId, uint256 windowId) 
         inactiveAuction(auctionId)
     override public {    
         _fulfillWindow(auctionId, windowId);
@@ -335,7 +339,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Fulfill a window index
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function _fulfillWindow(bytes memory auctionId, uint256 windowId) internal {
+    function _fulfillWindow(bytes calldata auctionId, uint256 windowId) internal {
         Auction storage state = _auctions[auctionId];
         Window storage window = _window[auctionId][windowId];
 
@@ -367,7 +371,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's remaining duration
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function remainingTime(bytes memory auctionId) public view returns (uint256) {
+    function remainingTime(bytes calldata auctionId) public view returns (uint256) {
         return _auctions[auctionId].duration - elapsedTime(auctionId);
     }
 
@@ -375,7 +379,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's active remaining window duration
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function remainingWindowTime(bytes memory auctionId) public view returns (uint256) {
+    function remainingWindowTime(bytes calldata auctionId) public view returns (uint256) {
         uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
 
         if (isWindowActive(auctionId)) {
@@ -389,11 +393,11 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's progress in unix time
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */     
-    function elapsedTime(bytes memory auctionId) public view returns (uint256) {
+    function elapsedTime(bytes calldata auctionId) public view returns (uint256) {
         return block.timestamp - windowElapsedTime(auctionId) - _auctions[auctionId].startTimestamp;
     }
 
-    function windowElapsedTime(bytes memory auctionId) public view returns (uint256) {
+    function windowElapsedTime(bytes calldata auctionId) public view returns (uint256) {
         uint256 windowIndex = _windows[auctionId];
 
         Auction storage state = _auctions[auctionId];
@@ -412,7 +416,7 @@ contract RDA is IRDA, ReentrancyGuard {
         }
     }
 
-    function elapsedTimeFromWindow(bytes memory auctionId) public view returns (uint256) {
+    function elapsedTimeFromWindow(bytes calldata auctionId) public view returns (uint256) {
         Auction storage state = _auctions[auctionId];
 
         uint256 endTimestamp = state.windowTimestamp;
@@ -421,6 +425,7 @@ contract RDA is IRDA, ReentrancyGuard {
             endTimestamp = _window[auctionId][_windows[auctionId]].expiry;
         }
 
+
         return endTimestamp - windowElapsedTime(auctionId) - state.startTimestamp;
     }
 
@@ -428,9 +433,12 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Auction management redemption 
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */     
-    function withdraw(bytes memory auctionId) 
+    function withdraw(bytes calldata auctionId) 
         inactiveAuction(auctionId) 
     override external {
+        ERC20 tokenReserve = ERC20(reserveToken(auctionId));
+        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
+
         uint256 proceeds = _auctions[auctionId].proceeds;
         uint256 reserves = _auctions[auctionId].reserves;
 
@@ -438,10 +446,10 @@ contract RDA is IRDA, ReentrancyGuard {
         delete _auctions[auctionId].reserves;
 
         if (proceeds > 0) {
-            ERC20(purchaseToken(auctionId)).safeTransfer(operatorAddress(auctionId), proceeds);
+            tokenPurchase.safeTransfer(operatorAddress(auctionId), proceeds);
         }
         if (reserves > 0) {
-            ERC20(reserveToken(auctionId)).safeTransfer(operatorAddress(auctionId), reserves);
+            tokenReserve.safeTransfer(operatorAddress(auctionId), reserves);
         }
 
         emit Withdraw(auctionId);
@@ -451,9 +459,12 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Auction order and refund redemption 
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function redeem(address bidder, bytes memory auctionId)
+    function redeem(address bidder, bytes calldata auctionId)
         inactiveAuction(auctionId) 
     override external {
+        ERC20 tokenReserve = ERC20(reserveToken(auctionId));
+        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
+
         bytes memory claimHash = _claims[bidder][auctionId];
 
         (uint256 refund, uint256 claim) = balancesOf(claimHash);
@@ -461,10 +472,10 @@ contract RDA is IRDA, ReentrancyGuard {
         delete _claims[bidder][auctionId];
 
         if (refund > 0) {
-            ERC20(purchaseToken(auctionId)).safeTransfer(bidder, refund);
+            tokenPurchase.safeTransfer(bidder, refund);
         }
         if (claim > 0) {
-            ERC20(reserveToken(auctionId)).safeTransfer(bidder, claim);
+            tokenReserve.safeTransfer(bidder, claim);
         }
 
         emit Claim(auctionId, claimHash);
