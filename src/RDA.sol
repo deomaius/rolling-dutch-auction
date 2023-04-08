@@ -52,10 +52,9 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
     modifier activeAuction(bytes calldata auctionId) {
-        require(
-            remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0,
-            "INACTIVE AUCTION"
-        );
+        if (remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0) {
+            revert AuctionInactive();
+        }
         _;
     }
 
@@ -64,10 +63,9 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
     modifier inactiveAuction(bytes calldata auctionId) {
-        require(
-            remainingWindowTime(auctionId) == 0 && remainingTime(auctionId) == 0,
-            "ACTIVE AUCTION"
-        );
+        if (remainingWindowTime(auctionId) > 0 || remainingTime(auctionId) > 0) {
+            revert AuctionActive();
+        }
         _;
     }
 

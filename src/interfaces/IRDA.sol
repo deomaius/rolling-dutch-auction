@@ -28,6 +28,10 @@ interface IRDA {
 
     error AuctionExists();
 
+    error AuctionActive();
+
+    error AuctionInactive();
+
     function createAuction(
      	address operatorAddress,
       	address reserveToken,
