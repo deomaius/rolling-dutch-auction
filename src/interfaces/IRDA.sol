@@ -18,7 +18,7 @@ interface IRDA {
 
     error InvalidAuctionPrice();
 
-    error InvalidAuctionTimestamps();
+    error InvalidAuctionTimestamp();
 
     error InvalidScalarPrice();
 

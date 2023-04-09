@@ -156,6 +156,7 @@ contract RDA is IRDA, ReentrancyGuard {
         );
 
         ERC20 tokenReserve = ERC20(reserveToken);
+        ERC20 tokenPurchase = ERC20(purchaseToken);
 
         Auction storage state = _auctions[auctionId];
 
@@ -167,14 +168,14 @@ contract RDA is IRDA, ReentrancyGuard {
         if (startingOriginPrice == 0) {
             revert InvalidAuctionPrice();
         }
+        if (startTimestamp < block.timestamp) {
+            revert InvalidAuctionTimestamp();
+        }
+        if (tokenReserve.decimals() != tokenPurchase.decimals()){
+            revert InvalidTokenDecimals();
+        }
         if (auctionDuration < 1 days || windowDuration < 2 hours) {
             revert InvalidAuctionDurations();
-        }
-        if (startTimestamp < block.timestamp || endTimestamp < block.timestamp) {
-            revert InvalidAuctionTimestamps();
-        }
-        if (ERC20(reserveToken).decimals() != ERC20(purchaseToken).decimals()){
-            revert InvalidTokenDecimals();
         }
 
         tokenReserve.safeTransferFrom(msg.sender, address(this), reserveAmount);
@@ -378,13 +379,11 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
     function remainingWindowTime(bytes calldata auctionId) public view returns (uint256) {
-        uint256 expiryTimestamp = _window[auctionId][_windows[auctionId]].expiry;
-
-        if (isWindowActive(auctionId)) {
-            return expiryTimestamp - block.timestamp;
-        } else {
+        if (!isWindowActive(auctionId)) {
             return 0;
-        }
+        } 
+
+        return _window[auctionId][_windows[auctionId]].expiry - block.timestamp; 
     }
 
     /*  
@@ -396,22 +395,14 @@ contract RDA is IRDA, ReentrancyGuard {
     }
 
     function windowElapsedTime(bytes calldata auctionId) public view returns (uint256) {
-        uint256 windowIndex = _windows[auctionId];
-
-        Auction storage state = _auctions[auctionId];
-        Window storage window = _window[auctionId][windowIndex];
-
-        uint256 elapsedWindowsTime = state.windowDuration * (windowIndex + 1); 
-
-        if (isWindowInit(auctionId)) {
-            if (isWindowActive(auctionId)) {
-                return elapsedWindowsTime - remainingWindowTime(auctionId);
-            } else {
-                return elapsedWindowsTime;
-            }
-        } else {
+        if (!isWindowInit(auctionId)) {
             return 0;
         }
+
+        uint256 windowIndex = _windows[auctionId];
+        uint256 elapsedWindowsTime = _auctions[auctionId].windowDuration * (windowIndex + 1); 
+
+        return elapsedWindowsTime - remainingWindowTime(auctionId);
     }
 
     function elapsedTimeFromWindow(bytes calldata auctionId) public view returns (uint256) {
