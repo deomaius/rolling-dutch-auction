@@ -86,6 +86,41 @@ contract RDATest is Test, Parameters {
         require(windowScalarPrice == 4679841269842);
     }
 
+    function testFuzz_scalarPrice(uint256 amount) public {
+        vm.assume(amount < AUCTION_DURATION && amount > 0);
+        vm.warp(block.timestamp + amount);
+
+        uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bytes memory bidId = createBid(scalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + AUCTION_WINDOW_DURATION + 1);
+
+        uint256 newScalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bidId = createBid(newScalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        uint256 remainingTime = RDA(_auctionAddress).remainingTime(_auctionId);
+
+        vm.warp(block.timestamp + AUCTION_WINDOW_DURATION + remainingTime - 1);
+
+        uint256 nextScalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);
+
+        /* -------------BIDDER-------------- */
+            vm.startPrank(TEST_ADDRESS_TWO);
+            bidId = createBid(nextScalarPrice);
+            vm.stopPrank();
+        /* --------------------------------- */
+    }
+
     function testElapsedTime() public {
         vm.warp(block.timestamp + 1 days);
 

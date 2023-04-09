@@ -10,5 +10,5 @@ contract Parameters {
     uint256 constant AUCTION_WINDOW_DURATION = 2 hours;
     uint256 constant AUCTION_MINIMUM_PURCHASE = 1 ether;
     uint256 constant AUCTION_ORIGIN_PRICE = 4717280 gwei;
-    uint256 constant AUCTION_RESERVES = 100000 ether;
+    uint256 constant AUCTION_RESERVES = 1000000000 ether;
 }
