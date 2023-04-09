@@ -28,25 +28,6 @@ contract RDA is IRDA, ReentrancyGuard {
     /*  @dev Auction mapping for the window index                  */
     mapping(bytes => uint256) public _windows;
 
-    struct Auction {
-        uint256 windowDuration;     /*  @dev Unix time window duration         */
-        uint256 windowTimestamp;    /*  @dev Unix timestamp for window start   */
-        uint256 startTimestamp;     /*  @dev Unix auction start timestamp      */ 
-        uint256 endTimestamp;       /*  @dev Unix auction end timestamp        */
-        uint256 duration;           /*  @dev Unix time auction duration        */
-        uint256 proceeds;           /*  @dev Auction proceeds balance          */  
-        uint256 reserves;           /*  @dev Auction reserves balance          */
-        uint256 price;              /*  @dev Auction origin price              */
-    }
-
-    struct Window {
-        bytes bidId;        /*  @dev Bid identifier                     */ 
-        uint256 expiry;     /*  @dev Unix timestamp window exipration   */
-        uint256 price;      /*  @dev Window price                       */
-        uint256 volume;     /*  @dev Window volume                      */
-        bool processed;     /*  @dev Window fuflfillment state          */
-    }
-
     /*  
         * @dev Conditioner to ensure an auction is active  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
@@ -85,6 +66,14 @@ contract RDA is IRDA, ReentrancyGuard {
         (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
+    /*  
+        * @dev Helper to view an auction's reserve token address  
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
+    */  
+    function reserveToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
+        (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+    }
+
     function isWindowInit(bytes calldata auctionId) public view returns (bool) {
         return _window[auctionId][_windows[auctionId]].expiry != 0;   
     }
@@ -99,14 +88,6 @@ contract RDA is IRDA, ReentrancyGuard {
         Window storage window = _window[auctionId][_windows[auctionId]];
 
         return isWindowInit(auctionId) && window.expiry < block.timestamp;   
-    }
-
-    /*  
-        * @dev Helper to view an auction's reserve token address  
-        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
-    */  
-    function reserveToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
-        (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
     }
 
     /*  
@@ -155,12 +136,7 @@ contract RDA is IRDA, ReentrancyGuard {
             abi.encodePacked(reserveAmount, startingOriginPrice, startTimestamp, endTimestamp, windowDuration)
         );
 
-        ERC20 tokenReserve = ERC20(reserveToken);
-        ERC20 tokenPurchase = ERC20(purchaseToken);
-
         Auction storage state = _auctions[auctionId];
-
-        uint256 auctionDuration = endTimestamp - startTimestamp;
 
         if (state.price != 0) {
             revert AuctionExists();
@@ -171,24 +147,24 @@ contract RDA is IRDA, ReentrancyGuard {
         if (startTimestamp < block.timestamp) {
             revert InvalidAuctionTimestamp();
         }
-        if (tokenReserve.decimals() != tokenPurchase.decimals()){
+        if (ERC20(reserveToken).decimals() != ERC20(purchaseToken).decimals()){
             revert InvalidTokenDecimals();
         }
-        if (auctionDuration < 1 days || windowDuration < 2 hours) {
+        if (endTimestamp - startTimestamp < 1 days || windowDuration < 2 hours) {
             revert InvalidAuctionDurations();
         }
 
-        tokenReserve.safeTransferFrom(msg.sender, address(this), reserveAmount);
-
+        state.duration = endTimestamp - startTimestamp;
         state.windowDuration = windowDuration;
         state.windowTimestamp = startTimestamp;
         state.startTimestamp = startTimestamp;
         state.endTimestamp = endTimestamp;
         state.price = startingOriginPrice;
-        state.duration = auctionDuration;
         state.reserves = reserveAmount;
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingOriginPrice, endTimestamp);
+
+        ERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
 
         return auctionId;
     }
@@ -414,7 +390,6 @@ contract RDA is IRDA, ReentrancyGuard {
             endTimestamp = _window[auctionId][_windows[auctionId]].expiry;
         }
 
-
         return endTimestamp - windowElapsedTime(auctionId) - state.startTimestamp;
     }
 
@@ -456,9 +431,9 @@ contract RDA is IRDA, ReentrancyGuard {
 
         bytes memory claimHash = _claims[bidder][auctionId];
 
-        (uint256 refund, uint256 claim) = balancesOf(claimHash);
-
         delete _claims[bidder][auctionId];
+
+        (uint256 refund, uint256 claim) = balancesOf(claimHash);
 
         if (refund > 0) {
             tokenPurchase.safeTransfer(bidder, refund);
