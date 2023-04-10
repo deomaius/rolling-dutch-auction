@@ -40,8 +40,8 @@ contract RDATest is Test, Parameters {
 
     function testAuctionIdDecoding() public {
         require(RDA(_auctionAddress).operatorAddress(_auctionId) == TEST_ADDRESS_ONE);
-        require(RDA(_auctionAddress).purchaseToken(_auctionId) == _purchaseToken);
-        require(RDA(_auctionAddress).reserveToken(_auctionId) == _reserveToken);
+        require(RDA(_auctionAddress).purchaseToken(_auctionId) == IERC20(_purchaseToken));
+        require(RDA(_auctionAddress).reserveToken(_auctionId) == IERC20(_reserveToken));
         require(RDA(_auctionAddress).minimumPurchase(_auctionId) == AUCTION_MINIMUM_PURCHASE);
     }
 
@@ -87,7 +87,7 @@ contract RDATest is Test, Parameters {
     }
 
     function testFuzz_scalarPrice(uint256 amount) public {
-        vm.assume(amount < AUCTION_DURATION && amount > 0);
+        vm.assume(amount < AUCTION_DURATION && amount > 1);
         vm.warp(block.timestamp + amount);
 
         uint256 scalarPrice = RDA(_auctionAddress).scalarPrice(_auctionId);

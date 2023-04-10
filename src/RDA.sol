@@ -1,8 +1,9 @@
 pragma solidity 0.8.13;
 
 import { IRDA } from "@root/interfaces/IRDA.sol";
+import { IERC20 } from "@openzeppelin/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
 
-import { ERC20 } from "@openzeppelin/token/ERC20/ERC20.sol";
 import { SafeERC20 } from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuard } from "@openzeppelin/security/ReentrancyGuard.sol";
 
@@ -14,7 +15,7 @@ import { ReentrancyGuard } from "@openzeppelin/security/ReentrancyGuard.sol";
 
 contract RDA is IRDA, ReentrancyGuard {
     
-    using SafeERC20 for ERC20;
+    using SafeERC20 for IERC20;
 
     /*  @dev Address mapping for an auction's redeemable balances  */
     mapping(address => mapping(bytes => bytes)) public _claims;
@@ -62,16 +63,20 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to view an auction's purchase token address  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Ancoded auction parameter identifier    
     */  
-    function purchaseToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
-        (,, tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+    function purchaseToken(bytes calldata auctionId) public pure returns (IERC20) {
+        (,, address tokenAddress,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+
+        return IERC20(tokenAddress);
     }
 
     /*  
         * @dev Helper to view an auction's reserve token address  
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
     */  
-    function reserveToken(bytes calldata auctionId) public pure returns (address tokenAddress) {
-        (, tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+    function reserveToken(bytes calldata auctionId) public pure returns (IERC20) {
+        (, address tokenAddress,,,) = abi.decode(auctionId, (address, address, address, uint256, bytes));
+
+        return IERC20(tokenAddress);
     }
 
     function isWindowInit(bytes calldata auctionId) public view returns (bool) {
@@ -94,15 +99,10 @@ contract RDA is IRDA, ReentrancyGuard {
         * @dev Helper to decode claim hash balances
         * @param c͟l͟a͟i͟m͟H͟a͟s͟h͟ Encoded (uint256, uint256) values 
     */  
-    function balancesOf(bytes memory claimHash) public pure returns (uint256, uint256) {
-        uint256 refundBalance;
-        uint256 claimBalance;
-
+    function balancesOf(bytes memory claimHash) public pure returns (uint256 refund, uint256 claim) {
         if (keccak256(claimHash) != keccak256(bytes(""))) {
-            (refundBalance, claimBalance) = abi.decode(claimHash, (uint256, uint256));
+            (refund, claim) = abi.decode(claimHash, (uint256, uint256));
         }
-
-        return (refundBalance, claimBalance);
     }
 
     /*  
@@ -147,11 +147,11 @@ contract RDA is IRDA, ReentrancyGuard {
         if (startTimestamp < block.timestamp) {
             revert InvalidAuctionTimestamp();
         }
-        if (ERC20(reserveToken).decimals() != ERC20(purchaseToken).decimals()){
-            revert InvalidTokenDecimals();
-        }
         if (endTimestamp - startTimestamp < 1 days || windowDuration < 2 hours) {
             revert InvalidAuctionDurations();
+        }
+        if (IERC20Metadata(reserveToken).decimals() != IERC20Metadata(purchaseToken).decimals()){
+            revert InvalidTokenDecimals();
         }
 
         state.duration = endTimestamp - startTimestamp;
@@ -164,7 +164,7 @@ contract RDA is IRDA, ReentrancyGuard {
 
         emit NewAuction(auctionId, reserveToken, reserveAmount, startingOriginPrice, endTimestamp);
 
-        ERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
+        IERC20(reserveToken).safeTransferFrom(msg.sender, address(this), reserveAmount);
 
         return auctionId;
     }
@@ -256,9 +256,13 @@ contract RDA is IRDA, ReentrancyGuard {
 
         bidId = abi.encode(auctionId, msg.sender, price, orderVolume);
 
-        (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
+        {
+            (uint256 refund, uint256 claim) = balancesOf(_claims[msg.sender][auctionId]);
 
-        _claims[msg.sender][auctionId] = abi.encode(refund + orderVolume, claim);
+            delete _claims[msg.sender][auctionId];
+
+            _claims[msg.sender][auctionId] = abi.encode(refund + orderVolume, claim);
+        }
 
         if (hasExpired) {
             window = _window[auctionId][windowExpiration(auctionId)];
@@ -273,9 +277,7 @@ contract RDA is IRDA, ReentrancyGuard {
 
         emit Offer(auctionId, msg.sender, bidId, window.expiry);
 
-        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
-
-        tokenPurchase.safeTransferFrom(msg.sender, address(this), orderVolume);
+        purchaseToken(auctionId).safeTransferFrom(msg.sender, address(this), orderVolume);
     }
 
     /*  
@@ -400,9 +402,6 @@ contract RDA is IRDA, ReentrancyGuard {
     function withdraw(bytes calldata auctionId) 
         inactiveAuction(auctionId) 
     override external {
-        ERC20 tokenReserve = ERC20(reserveToken(auctionId));
-        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
-
         uint256 proceeds = _auctions[auctionId].proceeds;
         uint256 reserves = _auctions[auctionId].reserves;
 
@@ -410,10 +409,10 @@ contract RDA is IRDA, ReentrancyGuard {
         delete _auctions[auctionId].reserves;
 
         if (proceeds > 0) {
-            tokenPurchase.safeTransfer(operatorAddress(auctionId), proceeds);
+            purchaseToken(auctionId).safeTransfer(operatorAddress(auctionId), proceeds);
         }
         if (reserves > 0) {
-            tokenReserve.safeTransfer(operatorAddress(auctionId), reserves);
+            reserveToken(auctionId).safeTransfer(operatorAddress(auctionId), reserves);
         }
 
         emit Withdraw(auctionId);
@@ -426,20 +425,15 @@ contract RDA is IRDA, ReentrancyGuard {
     function redeem(address bidder, bytes calldata auctionId)
         inactiveAuction(auctionId) 
     override external {
-        ERC20 tokenReserve = ERC20(reserveToken(auctionId));
-        ERC20 tokenPurchase = ERC20(purchaseToken(auctionId));
-
-        bytes memory claimHash = _claims[bidder][auctionId];
+        (uint256 refund, uint256 claim) = balancesOf(_claims[bidder][auctionId]);
 
         delete _claims[bidder][auctionId];
 
-        (uint256 refund, uint256 claim) = balancesOf(claimHash);
-
         if (refund > 0) {
-            tokenPurchase.safeTransfer(bidder, refund);
+            purchaseToken(auctionId).safeTransfer(bidder, refund);
         }
         if (claim > 0) {
-            tokenReserve.safeTransfer(bidder, claim);
+            reserveToken(auctionId).safeTransfer(bidder, claim);
         }
 
         emit Claim(auctionId, claimHash);
