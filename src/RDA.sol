@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.13;
 
 import { IRDA } from "@root/interfaces/IRDA.sol";
@@ -62,7 +63,7 @@ contract RDA is IRDA, ReentrancyGuard {
 
     /*  
         * @dev Helper to view an auction's purchase token address  
-        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Ancoded auction parameter identifier
+        * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier
         * @return p͟u͟r͟c͟h͟a͟s͟e͟T͟o͟k͟e͟n͟ Token interface    
     */  
     function purchaseToken(bytes calldata auctionId) public pure returns (IERC20) {
@@ -152,7 +153,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * @param s͟t͟a͟r͟t͟i͟n͟g͟O͟r͟i͟g͟i͟n͟P͟r͟i͟c͟e͟ Auction starting price 
         * @param s͟t͟a͟r͟t͟T͟i͟m͟e͟s͟t͟a͟m͟p͟ Unix timestamp auction initiation
         * @param e͟n͟d͟T͟i͟m͟e͟s͟t͟a͟m͟p͟ Unix timestamp auction expiration
-        * @param w͟i͟n͟d͟o͟w͟D͟u͟r͟a͟t͟i͟o͟n͟ Uinx time window duration
+        * @param w͟i͟n͟d͟o͟w͟D͟u͟r͟a͟t͟i͟o͟n͟ Unix time window duration
         * @return a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier 
     */  
     function createAuction(
@@ -222,7 +223,7 @@ contract RDA is IRDA, ReentrancyGuard {
         * the window's expiration. Time remaining (t_r) since the predefined 
         * timestamp until the auctions conclusion, is subtracted from t and applied
         * as modulo to t subject to addition of itself. The resultant is divided by t_r 
-        * to compute elapsed progress (x) from the last timestamp, x is multipled by 
+        * to compute elapsed progress (x) from the last timestamp, x is multiplied by 
         * the origin price (y) and subtracted by y to result the decayed price
         * @param a͟u͟c͟t͟i͟o͟n͟I͟d͟ Encoded auction parameter identifier    
         * @return s͟c͟a͟l͟a͟r͟P͟r͟i͟c͟e͟ Curve price
